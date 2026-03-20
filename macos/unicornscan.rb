@@ -16,12 +16,14 @@ class Unicornscan < Formula
   desc "Asynchronous stateless TCP/UDP network scanner with web UI"
   homepage "https://github.com/robertelee78/unicornscan"
   url "https://github.com/robertelee78/unicornscan/archive/refs/tags/v0.5.0.tar.gz"
-  sha256 "PLACEHOLDER"
+  sha256 "e87b8b74734269396972476e827bc94092f5f19c127b3342e39d2fbb3eeb936f"
   license "GPL-2.0-or-later"
   head "https://github.com/robertelee78/unicornscan.git", branch: "main"
 
   depends_on "autoconf" => :build
   depends_on "automake" => :build
+  depends_on "bison" => :build
+  depends_on "flex" => :build
   depends_on "libtool" => :build
   depends_on "pkg-config" => :build
   depends_on "libdnet"
