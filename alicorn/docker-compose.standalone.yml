@@ -81,7 +81,6 @@ services:
       postgres:
         condition: service_healthy
     restart: unless-stopped
-      start_period: 15s
 
   # ==========================================================================
   # Alicorn Web UI
