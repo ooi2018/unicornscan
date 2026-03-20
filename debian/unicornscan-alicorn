@@ -252,7 +252,7 @@ check_ports() {
     local ports_in_use=""
     local port_info=""
 
-    for port in 31337 31338 5432; do
+    for port in 31337 31338 ${ALICORN_PG_PORT:-5433}; do
         if port_in_use "$port"; then
             ports_in_use="$ports_in_use $port"
             # Try to identify what's using the port
@@ -269,7 +269,7 @@ check_ports() {
         echo ""
         echo "  Port 31337 = Alicorn Web UI"
         echo "  Port 31338 = Alicorn API (PostgREST)"
-        echo "  Port 5432  = PostgreSQL database"
+        echo "  Port ${ALICORN_PG_PORT:-5433}  = PostgreSQL database"
         echo ""
         echo "Please stop the conflicting service(s) or change their ports."
         echo "If this is from a previous Alicorn run, try: sudo unicornscan-alicorn stop"
@@ -470,7 +470,7 @@ cmd_start() {
     echo ""
     echo "  Web UI:    http://localhost:31337"
     echo "  API:       http://localhost:31338"
-    echo "  Database:  postgresql://localhost:5432/unicornscan"
+    echo "  Database:  postgresql://localhost:${ALICORN_PG_PORT:-5433}/unicornscan"
     echo ""
     echo "Run a scan with database export:"
     echo "  unicornscan -epgsqldb <target>"
