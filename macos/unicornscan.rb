@@ -59,21 +59,26 @@ class Unicornscan < Formula
     # Use DESTDIR-based staged install.  The Makefiles install into
     # DESTDIR-prefixed paths, so we point DESTDIR at a staging area
     # and then selectively copy files into the Homebrew prefix.
+    #
+    # IMPORTANT: Ruby Pathname#/ with an absolute RHS ignores the LHS,
+    # so staging/prefix resolves to just prefix (wrong).  We use string
+    # concatenation to build the correct DESTDIR-prefixed path.
     staging = buildpath/"stage"
     system "make", "install", "DESTDIR=#{staging}"
+    staged = Pathname.new("#{staging}#{prefix}")
 
     # --- Binaries ---
     # Main scanner binary and its symlink
-    bin.install staging/prefix/"bin/unicornscan"
+    bin.install staged/"bin/unicornscan"
     bin.install_symlink bin/"unicornscan" => "us"
 
     # Helper tools
-    bin.install staging/prefix/"bin/fantaip"
-    bin.install staging/prefix/"bin/unibrow"
-    bin.install staging/prefix/"bin/unicfgtst"
+    bin.install staged/"bin/fantaip"
+    bin.install staged/"bin/unibrow"
+    bin.install staged/"bin/unicfgtst"
 
     # GeoIP database update script (installed by top-level Makefile)
-    bin.install staging/prefix/"bin/unicornscan-geoip-update"
+    bin.install staged/"bin/unicornscan-geoip-update"
 
     # Alicorn web UI management script
     bin.install "debian/unicornscan-alicorn"
@@ -82,8 +87,8 @@ class Unicornscan < Formula
     # --- Internal executables (sender and listener) ---
     # These are child processes spawned by the main binary; they live
     # in libexec rather than bin because users never invoke them directly.
-    (libexec/"unicornscan").install staging/prefix/"libexec/unicornscan/unisend"
-    (libexec/"unicornscan").install staging/prefix/"libexec/unicornscan/unilisten"
+    (libexec/"unicornscan").install staged/"libexec/unicornscan/unisend"
+    (libexec/"unicornscan").install staged/"libexec/unicornscan/unilisten"
 
     # --- Loadable modules ---
     # Payload modules (.la + .so/.dylib) built by src/payload_modules
@@ -93,7 +98,7 @@ class Unicornscan < Formula
     # The staged MODDIR is lib/unicornscan/modules.  Copy the entire
     # directory preserving the .la and shared-object files that libtool
     # installed there.
-    modules_staged = staging/prefix/"lib/unicornscan/modules"
+    modules_staged = staged/"lib/unicornscan/modules"
     if modules_staged.exist?
       (lib/"unicornscan/modules").install Dir[modules_staged/"*"]
     end
@@ -105,18 +110,18 @@ class Unicornscan < Formula
     # --- Configuration files ---
     # Install config files to etc/unicornscan/.  Homebrew marks files
     # under etc/ as "configuration" so they survive upgrades.
-    (etc/"unicornscan").install staging/etc/"unicornscan/unicorn.conf"
-    (etc/"unicornscan").install staging/etc/"unicornscan/payloads.conf"
-    (etc/"unicornscan").install staging/etc/"unicornscan/oui.txt"
-    (etc/"unicornscan").install staging/etc/"unicornscan/ports.txt"
-    (etc/"unicornscan").install staging/etc/"unicornscan/modules.conf"
+    (etc/"unicornscan").install Pathname.new("#{staging}#{etc}")/"unicornscan/unicorn.conf"
+    (etc/"unicornscan").install Pathname.new("#{staging}#{etc}")/"unicornscan/payloads.conf"
+    (etc/"unicornscan").install Pathname.new("#{staging}#{etc}")/"unicornscan/oui.txt"
+    (etc/"unicornscan").install Pathname.new("#{staging}#{etc}")/"unicornscan/ports.txt"
+    (etc/"unicornscan").install Pathname.new("#{staging}#{etc}")/"unicornscan/modules.conf"
 
     # --- Man pages ---
-    man1.install staging/prefix/"share/man/man1/unicornscan.1"
-    man1.install staging/prefix/"share/man/man1/fantaip.1"
-    man1.install staging/prefix/"share/man/man1/unibrow.1"
-    man1.install staging/prefix/"share/man/man1/unicfgtst.1"
-    man5.install staging/prefix/"share/man/man5/unicorn.conf.5"
+    man1.install staged/"share/man/man1/unicornscan.1"
+    man1.install staged/"share/man/man1/fantaip.1"
+    man1.install staged/"share/man/man1/unibrow.1"
+    man1.install staged/"share/man/man1/unicfgtst.1"
+    man5.install staged/"share/man/man5/unicorn.conf.5"
 
     # --- macOS-specific files ---
     # Sandbox profile for the listener process.  The configure.ac
