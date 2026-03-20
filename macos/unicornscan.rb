@@ -40,6 +40,7 @@ class Unicornscan < Formula
 
     args = %W[
       --prefix=#{prefix}
+      --libdir=#{lib}
       --sysconfdir=#{etc}
       --localstatedir=#{var}
       --with-listen-user=nobody
