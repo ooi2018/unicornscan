@@ -235,7 +235,7 @@ print_error() {
 
 # Generate a random 32-character password
 generate_password() {
-    tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 32
+    LC_ALL=C tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 32
 }
 
 # Check if postgres volume exists (from previous install)
