@@ -1,7 +1,7 @@
 #ifndef VERSION
 
-#define VERSION "0.4.51"
-#define BUGURL "https://github.com/robertelee78/unicornscan/issues"
+#define VERSION "0.5.0"
+#define BUGURL "robert@unicornscan.org"
 
 #ifdef WITH_SELINUX
 #define _B_SE " SELinux"

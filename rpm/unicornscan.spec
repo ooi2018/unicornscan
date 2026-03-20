@@ -1,7 +1,7 @@
 %global debug_package %{nil}
 
 Name:           unicornscan
-Version:        0.4.51
+Version:        0.5.0
 Release:        1%{?dist}
 Summary:        Asynchronous stateless TCP/UDP network scanner
 
