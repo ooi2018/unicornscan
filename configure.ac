@@ -310,9 +310,9 @@ if test "$with_pgsql" != "no"; then
       done
       if test -n "$PGSQL_INC_DIR"; then
         dnl Find library
-        for libdir in "$i/lib" "$i/lib/postgresql" "$i/lib64" "$i/lib/x86_64-linux-gnu"; do
-          if test -r "$libdir/libpq.so" || test -r "$libdir/libpq.a" || test -r "$libdir/libpq.dylib"; then
-            PGSQL_LIB_DIR="$libdir"
+        for pglibdir in "$i/lib" "$i/lib/postgresql" "$i/lib64" "$i/lib/x86_64-linux-gnu"; do
+          if test -r "$pglibdir/libpq.so" || test -r "$pglibdir/libpq.a" || test -r "$pglibdir/libpq.dylib"; then
+            PGSQL_LIB_DIR="$pglibdir"
             break
           fi
         done
