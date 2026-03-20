@@ -81,11 +81,6 @@ services:
       postgres:
         condition: service_healthy
     restart: unless-stopped
-    healthcheck:
-      test: ["NONE"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
       start_period: 15s
 
   # ==========================================================================
@@ -105,7 +100,7 @@ services:
       - "31337:80"
     depends_on:
       postgrest:
-        condition: service_healthy
+        condition: service_started
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://127.0.0.1:80/"]
