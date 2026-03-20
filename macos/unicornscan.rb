@@ -16,7 +16,7 @@ class Unicornscan < Formula
   desc "Asynchronous stateless TCP/UDP network scanner with web UI"
   homepage "https://github.com/robertelee78/unicornscan"
   url "https://github.com/robertelee78/unicornscan/archive/refs/tags/v0.5.0.tar.gz"
-  sha256 "660d50d1ae7d090eb6f3551498d91078de08e6c43182215965499c4211f480b4"
+  sha256 "8f54139ab9f864ba13995ae43582cf5fbda38155ecca2b75bd1ac8253462f837"
   license "GPL-2.0-or-later"
   head "https://github.com/robertelee78/unicornscan.git", branch: "main"
 
