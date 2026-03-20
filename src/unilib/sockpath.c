@@ -49,8 +49,8 @@ static int ensure_dir(const char *path, mode_t mode) {
 
 	if (stat(path, &sb) == 0) {
 		if (S_ISDIR(sb.st_mode)) {
-			/* Directory exists - verify it's ours */
-			if (sb.st_uid == getuid()) {
+			/* Directory exists - verify it's ours (or we're root) */
+			if (sb.st_uid == getuid() || getuid() == 0) {
 				return 0;
 			}
 			/* Directory exists but owned by someone else */
