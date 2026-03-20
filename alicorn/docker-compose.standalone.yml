@@ -52,8 +52,8 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./sql/pgsql_schema.sql:/docker-entrypoint-initdb.d/01_schema.sql:ro
-    # PostgreSQL is only accessed by PostgREST via Docker network.
-    # No host port mapping needed — avoids conflicts with host PostgreSQL.
+    ports:
+      - "5432:5432"
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-alicorn} -d ${POSTGRES_DB:-unicornscan}"]

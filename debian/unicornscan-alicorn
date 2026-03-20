@@ -252,7 +252,7 @@ check_ports() {
     local ports_in_use=""
     local port_info=""
 
-    for port in 31337 31338; do
+    for port in 31337 31338 5432; do
         if port_in_use "$port"; then
             ports_in_use="$ports_in_use $port"
             # Try to identify what's using the port
@@ -263,13 +263,55 @@ check_ports() {
     done
 
     if [ -n "$ports_in_use" ]; then
+        # Check if our own containers hold the ports
+        local own_ports=""
+        for port in $ports_in_use; do
+            local holder
+            holder=$(port_process "$port")
+            case "$holder" in
+                *docker*|*com.docker*|*alicorn*)
+                    own_ports="$own_ports $port"
+                    ;;
+            esac
+        done
+
+        # If all conflicting ports are our own containers, skip the check
+        if [ "$own_ports" = "$ports_in_use" ]; then
+            # Ports held by existing Alicorn containers, proceeding
+            return 0
+        fi
+
+        # Check if port 5432 is Homebrew postgres and offer to stop it
+        if echo "$ports_in_use" | grep -q "5432"; then
+            if brew services list 2>/dev/null | grep -q "postgresql.*started"; then
+                echo ""
+                print_warning "Port 5432 is in use by Homebrew's PostgreSQL service."
+                echo "  Alicorn runs its own PostgreSQL in Docker."
+                echo ""
+                read -p "  Stop Homebrew PostgreSQL to free port 5432? [Y/n] " -n 1 -r
+                echo ""
+                if [[ ! $REPLY =~ ^[Nn]$ ]]; then
+                    brew services stop postgresql@16 2>/dev/null || brew services stop postgresql 2>/dev/null
+                    sleep 1
+                    if ! port_in_use 5432; then
+                        print_success "Stopped Homebrew PostgreSQL"
+                        # Re-check remaining ports
+                        ports_in_use=$(echo "$ports_in_use" | sed 's/5432//' | xargs)
+                        if [ -z "$ports_in_use" ]; then
+                            return 0
+                        fi
+                    fi
+                fi
+            fi
+        fi
+
         echo ""
         print_error "Required ports are already in use:$ports_in_use"
         [ -n "$port_info" ] && echo -e "$port_info"
         echo ""
         echo "  Port 31337 = Alicorn Web UI"
         echo "  Port 31338 = Alicorn API (PostgREST)"
-        echo "  (PostgreSQL runs inside Docker network only, no host port needed)"
+        echo "  Port 5432  = PostgreSQL database"
         echo ""
         echo "Please stop the conflicting service(s) or change their ports."
         echo "If this is from a previous Alicorn run, try: sudo unicornscan-alicorn stop"
