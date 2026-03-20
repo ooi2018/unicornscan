@@ -199,6 +199,14 @@ void recv_packet(void) {
 		pdev=pcap_open_live(s->interface_str, /* XXX haha */ s->vi[0]->mtu + 64, (GET_PROMISC() ? 1 : 0), 100, errbuf);
 		if (pdev == NULL) {
 			ERR("pcap open live: %s", errbuf);
+#ifdef __APPLE__
+			/* BPF device permission error — emit actionable fix instructions */
+			if (strstr(errbuf, "ermission") != NULL || strstr(errbuf, "BPF") != NULL) {
+				ERR("BPF device access denied. To fix, run:");
+				ERR("  sudo macos/install-chmodbpf.sh");
+				ERR("  sudo dseditgroup -o edit -a $(whoami) -t user unicornscan");
+			}
+#endif
 
 			DBG(M_IPC, "sending ready error message to parent");
 			if (send_message(lc_s, MSG_READY, MSG_STATUS_ERROR, NULL, 0) < 0) {

@@ -1260,6 +1260,9 @@ static void open_link(int mode, struct sockaddr_storage *target, struct sockaddr
 			if (sl.s_u.ipsock == NULL) {
 				sl.s_u.ipsock=ip_open();
 				if (sl.s_u.ipsock == NULL) {
+#ifdef __APPLE__
+					ERR("raw socket access requires root on macOS, try: sudo unicornscan ...");
+#endif
 					terminate("dnet ip_open fails");
 				}
 			}
@@ -1269,6 +1272,10 @@ static void open_link(int mode, struct sockaddr_storage *target, struct sockaddr
 			if (sl.s_u.llsock == NULL) {
 				sl.s_u.llsock=eth_open(s->interface_str);
 				if (sl.s_u.llsock == NULL) {
+#ifdef __APPLE__
+					ERR("eth_open `%s' fails: all /dev/bpf* devices may be busy", s->interface_str);
+					ERR("check: lsof /dev/bpf* | grep -v unicornscan");
+#endif
 					terminate("dnet eth_open `%s' fails", s->interface_str);
 				}
 			}

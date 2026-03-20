@@ -19,7 +19,12 @@
 #include <config.h>
 
 #include <errno.h>
+#include <grp.h>
 #include <pwd.h>
+
+#ifdef HAVE_SANDBOX_H
+#include <dlfcn.h>
+#endif
 
 #include <settings.h>
 
@@ -29,7 +34,22 @@
 
 #ifdef HAVE_SANDBOX_H
 #include <sandbox.h>
-#endif
+
+/*
+ * Private SPI types from libsandbox.1.dylib.
+ * These structs are opaque -- we never dereference them directly;
+ * all access goes through the SPI functions resolved at runtime.
+ */
+typedef struct _sandbox_profile sandbox_profile_t;
+typedef struct _sandbox_params  sandbox_params_t;
+
+typedef sandbox_params_t  *(*fn_create_params)(void);
+typedef void               (*fn_free_params)(sandbox_params_t *);
+typedef sandbox_profile_t *(*fn_compile_file)(const char *, sandbox_params_t *, char **);
+typedef int                (*fn_apply)(sandbox_profile_t *);
+typedef void               (*fn_free_profile)(sandbox_profile_t *);
+
+#endif /* HAVE_SANDBOX_H */
 
 #if 0
 #define ROUTE_FILE "/proc/net/route"
@@ -93,7 +113,7 @@ int get_default_route_interface(char **dev_name, uint32_t low_ip, uint32_t high_
 
 int get_default_route_interface(char **dev_name, uint32_t low_ip, uint32_t high_ip) {
 	char errbuf[PCAP_ERRBUF_SIZE];
-                                                                                
+
 	memset(errbuf, 0, sizeof(errbuf));
 	*dev_name=pcap_lookupdev(errbuf);
 	if (*dev_name == NULL) {
@@ -177,41 +197,103 @@ int drop_privs(void) {
 /*
  * apply_sandbox - Apply a macOS sandbox profile to the current process.
  *
- * Reads a sandbox profile from disk and passes it to sandbox_init()
- * with SANDBOX_NAMED. This replaces chroot() on macOS
- * because:
- *   1. chroot() on macOS requires root and is poorly supported
- *   2. sandbox profiles provide finer-grained control (network, IPC,
- *      sysctl, file reads) than a simple filesystem jail
- *   3. The sandbox persists for the lifetime of the process and cannot
- *      be escaped, unlike chroot on some systems
+ * Loads libsandbox.1.dylib at runtime via dlopen/dlsym and resolves the
+ * private SPI functions sandbox_compile_file() and sandbox_apply().
+ * These are the underlying implementation functions that sandbox_init()
+ * wrapped before it was deprecated in macOS 10.8.
  *
- * The profile path is set at compile time via SANDBOX_PROFILE (from
- * configure --datadir). Falls back gracefully if the profile is missing
- * or sandbox_init() fails, since some macOS versions or configurations
- * may not support it.
+ * sandbox_init() itself only accepts Apple's built-in profile constants
+ * (kSBXProfileNoNetwork, etc.) via SANDBOX_NAMED -- it rejects custom
+ * .sb file paths on macOS 10.15+. The SPI functions have no such
+ * restriction and were confirmed working on macOS 26.3.1.
  *
- * Returns: 1 on success, 0 if sandbox was not applied (non-fatal),
- *         -1 on hard failure.
+ * Using dlopen/dlsym means the binary degrades gracefully on any future
+ * macOS that removes the SPI: if symbols are absent, the function logs
+ * a VRB(1) message and returns 0 (non-fatal), identical to today's
+ * behaviour.
+ *
+ * The profile path is compiled in as SANDBOX_PROFILE (set from
+ * @datadir@/unicornscan/unicornscan-listener.sb by Makefile.inc.in).
+ *
+ * Returns: 1 on success (sandbox applied),
+ *          0 if sandbox was not applied (non-fatal -- scan proceeds),
+ *         -1 on hard failure (sandbox_apply() returned non-zero).
  */
 static int apply_sandbox(void) {
+	void *libsb=NULL;
+	fn_create_params  sb_create_params=NULL;
+	fn_free_params    sb_free_params=NULL;
+	fn_compile_file   sb_compile_file=NULL;
+	fn_apply          sb_apply=NULL;
+	fn_free_profile   sb_free_profile=NULL;
+	sandbox_params_t  *params=NULL;
+	sandbox_profile_t *profile=NULL;
+	char *error=NULL;
+	int rc=0;
 
-	/*
-	 * sandbox_init() was deprecated in macOS 10.8 and the
-	 * SANDBOX_NAMED flag only accepts Apple's built-in profile
-	 * constants (kSBXProfileNoNetwork, etc.), not inline Scheme
-	 * text or file paths. Our custom .sb profile cannot be loaded
-	 * through this API on modern macOS (10.15+).
-	 *
-	 * XXX investigate sandbox_exec or App Sandbox entitlements
-	 * as a replacement for process-level sandboxing on macOS.
-	 * For now, rely on non-root BPF access via ChmodBPF and
-	 * the existing privilege drop in drop_privs().
-	 */
-	DBG(M_CLD, "macOS sandbox_init() is deprecated, sandboxing skipped");
-	VRB(2, "sandbox not available on this macOS version");
-
+#ifndef SANDBOX_PROFILE
+	/* build system did not define the profile path -- skip silently */
+	DBG(M_CLD, "SANDBOX_PROFILE not defined at compile time, sandbox skipped");
 	return 0;
+#else
+	/*
+	 * Resolve SPI symbols at runtime so the binary works on any macOS
+	 * that has the library present.  RTLD_LOCAL prevents the handle
+	 * from polluting the global symbol namespace.
+	 */
+	libsb=dlopen("/usr/lib/libsandbox.1.dylib", RTLD_LAZY | RTLD_LOCAL);
+	if (libsb == NULL) {
+		VRB(1, "libsandbox not available, sandbox skipped: %s", dlerror());
+		return 0;
+	}
+
+	sb_create_params=(fn_create_params) dlsym(libsb, "sandbox_create_params");
+	sb_free_params  =(fn_free_params)   dlsym(libsb, "sandbox_free_params");
+	sb_compile_file =(fn_compile_file)  dlsym(libsb, "sandbox_compile_file");
+	sb_apply        =(fn_apply)         dlsym(libsb, "sandbox_apply");
+	sb_free_profile =(fn_free_profile)  dlsym(libsb, "sandbox_free_profile");
+
+	/* compile_file and apply are the two non-negotiable symbols */
+	if (sb_compile_file == NULL || sb_apply == NULL) {
+		VRB(1, "sandbox SPI symbols not found, sandbox skipped");
+		dlclose(libsb);
+		return 0;
+	}
+
+	/* create_params is optional; pass NULL if missing */
+	if (sb_create_params != NULL) {
+		params=sb_create_params();
+	}
+
+	profile=sb_compile_file(SANDBOX_PROFILE, params, &error);
+
+	if (sb_free_params != NULL && params != NULL) {
+		sb_free_params(params);
+	}
+
+	if (profile == NULL) {
+		VRB(1, "sandbox_compile_file(`%s') failed: %s", SANDBOX_PROFILE,
+			error ? error : "(null)");
+		dlclose(libsb);
+		return 0;
+	}
+
+	rc=sb_apply(profile);
+
+	if (sb_free_profile != NULL) {
+		sb_free_profile(profile);
+	}
+
+	dlclose(libsb);
+
+	if (rc != 0) {
+		ERR("sandbox_apply failed (rc=%d)", rc);
+		return -1;
+	}
+
+	VRB(1, "macOS sandbox applied from `%s'", SANDBOX_PROFILE);
+	return 1;
+#endif /* SANDBOX_PROFILE */
 }
 #endif /* HAVE_SANDBOX_INIT */
 
@@ -229,7 +311,7 @@ int drop_privs(void) {
 	/*
 	 * If we are already running as a non-root user (e.g., via macOS
 	 * ChmodBPF group access or similar non-setuid setup), then we
-	 * cannot setreuid/setregid to NOPRIV_USER — only root can change
+	 * cannot setreuid/setregid to NOPRIV_USER -- only root can change
 	 * to a different user. In this case, skip the UID/GID drop since
 	 * we are already unprivileged.
 	 */
@@ -248,23 +330,21 @@ int drop_privs(void) {
 
 #ifdef HAVE_SANDBOX_INIT
 	/*
-	 * On macOS, use sandbox_init() instead of chroot(). The sandbox
-	 * profile restricts file access, prevents process spawning, and
-	 * limits system calls -- providing stronger isolation than chroot.
+	 * On macOS, apply the sandbox profile before dropping UID/GID.
+	 * The profile restricts file access, prevents process spawning,
+	 * and limits system calls -- stronger isolation than chroot.
 	 *
-	 * The sandbox is applied BEFORE dropping UID/GID because:
-	 *   1. sandbox_init() itself does not require root
-	 *   2. The sandbox cannot be removed once applied, regardless of
-	 *      privilege level, so order does not matter for security
-	 *   3. Applying it first means the UID drop also happens inside
-	 *      the sandbox, adding defense in depth
+	 * Applied BEFORE the UID drop because:
+	 *   1. sandbox_compile_file() does not require root
+	 *   2. once applied the sandbox cannot be removed regardless of
+	 *      privilege level, so ordering does not matter for security
+	 *   3. the UID drop then happens inside the sandbox (defence in depth)
 	 *
-	 * We chdir to CHROOT_DIR for consistency with the Linux path --
-	 * the working directory will be the state directory either way.
+	 * chdir to CHROOT_DIR for consistency with the Linux path -- the
+	 * working directory will be the state directory either way.
 	 */
 	if (chdir(CHROOT_DIR) < 0) {
-		/* Non-fatal on macOS: the directory may not exist if installed
-		 * via Homebrew without running the full install target */
+		/* non-fatal on macOS: directory may not exist under Homebrew */
 		DBG(M_CLD, "chdir to `%s' fails: %s (continuing)", CHROOT_DIR,
 			strerror(errno));
 	}
@@ -302,6 +382,20 @@ int drop_privs(void) {
 	}
 	} /* end chroot block scope */
 #endif /* HAVE_SANDBOX_INIT */
+
+	/*
+	 * Clear supplementary groups before dropping GID/UID.
+	 * setresgid/setregid/setgid alone do not remove supplementary
+	 * groups inherited from the root session (e.g., wheel, admin on
+	 * macOS). A process that retains root supplementary groups after
+	 * the UID drop can still access group-restricted resources.
+	 * setgroups(1, &mygid) replaces the entire supplementary group
+	 * list with exactly one entry: the target GID.
+	 */
+	if (setgroups(1, &mygid) != 0) {
+		ERR("setgroups fails: %s", strerror(errno));
+		return -1;
+	}
 
 #if defined(USE_SETRES)
 	if (setresgid(mygid, mygid, mygid) != 0) {

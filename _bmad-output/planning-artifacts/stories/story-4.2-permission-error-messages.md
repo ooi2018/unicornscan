@@ -1,6 +1,6 @@
 # Story 4.2: Improve Permission Error Messages
 
-Status: ready-for-dev
+Status: review
 
 ## Story
 
@@ -65,10 +65,25 @@ All code MUST follow `docs/jack-louis-coding-style-guide.md`.
 
 ### Agent Model Used
 
+claude-sonnet-4-6
+
 ### Debug Log References
+
+N/A — no runtime debugging required; change is straightforward conditional ERR() output.
 
 ### Completion Notes List
 
+- Implemented macOS-specific BPF permission guidance in `recv_packet.c` at the `pcap_open_live()` failure path (lines 200-216).
+- The `#ifdef __APPLE__` block fires only when `errbuf` contains "ermission" or "BPF", which covers both "Permission denied" and the macOS BPF-specific error format.
+- Linux error messages are byte-for-byte unchanged — the entire block is skipped by the preprocessor on non-Apple platforms.
+- The file compiles cleanly with zero warnings under `-Wall -Wextra` on macOS.
+- The `terminate()` call is preserved immediately after the guidance messages, maintaining the fatal behaviour.
+- Story 1.2 conflict note: this change touches `recv_packet.c` (listener side) only; `send_packet.c` (sender side) is handled by Story 1.2.
+
 ### Change Log
 
+- `src/scan_progs/recv_packet.c`: added `#ifdef __APPLE__` block after `ERR("pcap open live: %s", errbuf)` to emit actionable BPF permission fix instructions when the error message indicates a permission failure.
+
 ### File List
+
+- `src/scan_progs/recv_packet.c`

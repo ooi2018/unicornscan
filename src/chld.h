@@ -29,5 +29,11 @@ int chld_waitsync(void);
 /* try and account for all forked children with a wait() (will eventually give up) */
 void chld_reapall(void);
 
+/* send SIGTERM then SIGKILL to all tracked child PIDs */
+void chld_killall(void);
+
+/* atexit-compatible wrapper: idempotent, safe to call multiple times */
+void chld_cleanup(void);
+
 
 #endif

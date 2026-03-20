@@ -1,6 +1,6 @@
 # Story 2.4: Register atexit() Handler for Child Cleanup
 
-Status: ready-for-dev
+Status: review
 
 ## Story
 
@@ -63,10 +63,31 @@ All code MUST follow `docs/jack-louis-coding-style-guide.md`.
 
 ### Agent Model Used
 
+claude-sonnet-4-6
+
 ### Debug Log References
+
+- Confirmed `ltdl.h` build failure is pre-existing (present without any of my changes via `git stash` test).
+- Confirmed `chld.h` already included in `main.c` at line 52 — no new include needed.
+- Confirmed `terminate()` calls `exit(1)` when `s->forked == 0` (master), so atexit handlers fire on all master process exits.
+- Confirmed `_exit()` is only used when `s->forked == 1` (child processes), so children will not trigger the atexit handler — correct behavior.
 
 ### Completion Notes List
 
+- `chld_cleanup()` added to `src/chld.c` with static idempotency guard (`cleanup_ran`).
+- `chld_cleanup` declared in `src/chld.h`.
+- `atexit(chld_cleanup)` registered in `src/main.c` inside the `if (s->forklocal)` block, after `signals_children()` and before `chld_fork()`.
+- Build failure (`ltdl.h` not found) confirmed pre-existing — not introduced by this story.
+- Syntax validated independently via targeted `gcc -fsyntax-only` test.
+
 ### Change Log
 
+- `src/chld.c`: Added `chld_cleanup()` function after `chld_killall()`.
+- `src/chld.h`: Added declaration for `chld_cleanup(void)`.
+- `src/main.c`: Added `atexit(chld_cleanup)` call before `chld_fork()` inside `if (s->forklocal)`.
+
 ### File List
+
+- `src/chld.c`
+- `src/chld.h`
+- `src/main.c`

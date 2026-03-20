@@ -83,10 +83,21 @@ static int get_kqueue_fd(void) {
 		return -1;
 	}
 
-	/* Set close-on-exec so forked children don't inherit the kqueue fd */
+	/*
+	 * Set close-on-exec so forked children don't inherit the kqueue fd.
+	 *
+	 * This is treated as fatal: a freshly created kqueue fd should
+	 * always accept F_SETFD. If fcntl fails here, the kernel is in
+	 * an unexpected state and continuing would risk leaking the fd
+	 * into child processes that unicornscan forks (send/recv drones).
+	 * A leaked kqueue fd in a child is a security concern because the
+	 * child could use it to monitor fds in the parent's kqueue set.
+	 */
 	if (fcntl(kq_fd, F_SETFD, FD_CLOEXEC) < 0) {
 		ERR("fcntl FD_CLOEXEC on kqueue fd fails: %s", strerror(errno));
-		/* Non-fatal: continue without close-on-exec */
+		close(kq_fd);
+		kq_fd=-1;
+		return -1;
 	}
 
 	return kq_fd;

@@ -908,6 +908,7 @@ us -s 192.168.1.134/32 -Ivr1000 -mA50:R3:L15+sf -R2 192.168.1.0/24:q -eosdetect 
 | `-mA+U`        | ARP discovery → UDP                      |
 | `-mTF`         | TCP FIN scan                             |
 | `-mTA`         | TCP ACK scan                             |
+| `-mI`          | ICMP scan — **not yet implemented**      |
 
 ### Essential Flags
 

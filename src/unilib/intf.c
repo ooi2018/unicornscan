@@ -70,8 +70,19 @@ int get_interface_info(const char *iname, interface_info_t *ii) {
 #endif
 #ifdef AF_LINK
 				if (got_linkaddr == 0 && pcapaddr_u.fs->family == AF_LINK) {
-					struct sockaddr_dl *sdl=(struct sockaddr_dl *)pcapaddr_u.raw;
-					if (sdl->sdl_alen == THE_ONLY_SUPPORTED_HWADDR_LEN) {
+					struct sockaddr_dl *sdl=pcapaddr_u.sdl;
+					/*
+					 * Validate that sdl_nlen + sdl_alen does not
+					 * exceed the data region of sockaddr_dl before
+					 * calling LLADDR() (which is sdl_data + sdl_nlen).
+					 * sdl->sdl_len is the total sockaddr_dl length;
+					 * the data region is sdl_len minus the fixed header.
+					 * A malformed entry from a buggy driver or pcap
+					 * could otherwise cause an out-of-bounds read.
+					 */
+					if (sdl->sdl_alen == THE_ONLY_SUPPORTED_HWADDR_LEN &&
+					    (int)sdl->sdl_nlen + (int)sdl->sdl_alen <=
+					    (int)sdl->sdl_len - (int)offsetof(struct sockaddr_dl, sdl_data)) {
 						memcpy(ii->hwaddr, LLADDR(sdl), THE_ONLY_SUPPORTED_HWADDR_LEN);
 						got_linkaddr=1;
 					}

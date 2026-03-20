@@ -19,6 +19,7 @@
 #include <config.h>
 
 #include <errno.h>
+#include <fcntl.h>
 #include <signal.h>
 #include <time.h>
 
@@ -377,6 +378,49 @@ static void do_targets_from_arp_cache(void) {
 	xfree(collector.ips);
 }
 
+#ifdef __APPLE__
+/*
+ * check_bpf_access - probe /dev/bpf0 for read/write permission before forking.
+ *
+ * Returns  1 on success or EBUSY (another process holds bpf0; we will get
+ *            bpf1+ via eth_bpf_macos.c's iteration loop).
+ * Returns -1 on EACCES with actionable ChmodBPF setup instructions printed.
+ *
+ * Skipped entirely when running as root (getuid() == 0) because root always
+ * has BPF access and ChmodBPF is irrelevant in that context.
+ */
+static int check_bpf_access(void) {
+	int fd=-1;
+
+	if (getuid() == 0) {
+		return 1;
+	}
+
+	fd=open("/dev/bpf0", O_RDWR);
+	if (fd >= 0) {
+		close(fd);
+		return 1;
+	}
+
+	if (errno == EBUSY) {
+		/* another process holds bpf0; eth_bpf_macos.c will iterate to bpf1+ */
+		return 1;
+	}
+
+	if (errno == EACCES) {
+		ERR("no permission to open /dev/bpf0: install ChmodBPF to grant access");
+		ERR("  brew install --cask wireshark   # installs ChmodBPF as a side-effect");
+		ERR("  -- or --");
+		ERR("  sudo chown root:$(id -gn) /dev/bpf* && sudo chmod g+rw /dev/bpf*");
+		ERR("  then add yourself to the 'access_bpf' group and re-login");
+		return -1;
+	}
+
+	/* any other error (ENOENT, etc.) -- let the scan proceed; deeper code handles it */
+	return 1;
+}
+#endif /* __APPLE__ */
+
 int main(int argc, char **argv) {
 	unsigned int num_secs=0, time_off=0;
 	char time_est[128];
@@ -560,6 +604,12 @@ int main(int argc, char **argv) {
 
 	DBG(M_CLD, "main process id is %d", getpid());
 
+#ifdef __APPLE__
+	if (check_bpf_access() < 0) {
+		terminate("BPF device not accessible -- see above for ChmodBPF setup instructions");
+	}
+#endif
+
 	if (s->forklocal) {
 		chld_init();
 
@@ -567,6 +617,9 @@ int main(int argc, char **argv) {
 		if (signals_children() < 0) {
 			terminate("cant setup child signals");
 		}
+
+		/* register cleanup handler before forking so exit() kills children */
+		atexit(chld_cleanup);
 
 		/* initialize senders */
 		if (chld_fork() < 0) {

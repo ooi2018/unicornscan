@@ -1,6 +1,6 @@
 # Story 3.1: Implement apply_sandbox() via libsandbox SPI
 
-Status: ready-for-dev
+Status: review
 
 ## Story
 
@@ -76,10 +76,33 @@ All code MUST follow `docs/jack-louis-coding-style-guide.md`.
 
 ### Agent Model Used
 
+claude-sonnet-4-6
+
 ### Debug Log References
+
+None -- clean implementation, no debugging required.
 
 ### Completion Notes List
 
+- Replaced the stub `apply_sandbox()` with a working SPI-based implementation in `src/unilib/arch.c`.
+- Added forward declarations for opaque SPI types (`sandbox_profile_t`, `sandbox_params_t`) and five function-pointer typedefs (`fn_create_params`, `fn_free_params`, `fn_compile_file`, `fn_apply`, `fn_free_profile`) inside `#ifdef HAVE_SANDBOX_H` so they compile only on macOS.
+- Added `#include <dlfcn.h>` inside `#ifdef HAVE_SANDBOX_H` -- no include on Linux, no symbol pollution.
+- Implementation uses `dlopen("/usr/lib/libsandbox.1.dylib", RTLD_LAZY | RTLD_LOCAL)` and resolves all five SPI symbols via `dlsym`. Non-fatal if library or any symbol is absent.
+- `sandbox_compile_file()` and `sandbox_apply()` are the two required symbols. `sandbox_create_params`, `sandbox_free_params`, and `sandbox_free_profile` are treated as optional (NULL-guarded calls) for future-proofing.
+- `#ifndef SANDBOX_PROFILE` guard inside the function handles builds where the path was not defined (returns 0, non-fatal).
+- `SANDBOX_PROFILE` was already defined in `Makefile.inc.in` as `@datadir@/unicornscan/unicornscan-listener.sb` -- no configure.ac changes needed.
+- Added install/uninstall rules for `macos/unicornscan-listener.sb` to both `Makefile.in` and the generated `Makefile`. The file is installed to `$(datadir)/unicornscan/unicornscan-listener.sb`.
+- The `setgroups` call from Story 6.2 (`drop_privs`) was present in the file and is preserved unchanged.
+- Build verified clean with `gmake -C src/unilib arch.lo` and full `gmake all` -- zero errors, zero warnings.
+
 ### Change Log
 
+- `src/unilib/arch.c`: Replaced stub `apply_sandbox()` with SPI-based implementation. Added `#include <dlfcn.h>` and SPI type/typedef declarations under `#ifdef HAVE_SANDBOX_H`.
+- `Makefile.in`: Added `install` rule for `macos/unicornscan-listener.sb` to `$(datadir)/unicornscan/`. Added `uninstall` rule to remove it.
+- `Makefile`: Same install/uninstall rules applied to the generated Makefile.
+
 ### File List
+
+- `src/unilib/arch.c`
+- `Makefile.in`
+- `Makefile`

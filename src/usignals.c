@@ -26,7 +26,8 @@
 #include <unilib/output.h>
 #include <usignals.h>
 
-static int children_synced=0, children_dead=0;
+static volatile sig_atomic_t children_synced=0;
+static volatile sig_atomic_t children_dead=0;
 
 static void signals_chldsync(int );
 static void signals_chlddead(int );
@@ -79,13 +80,13 @@ static void signals_chldsync(int signo) {
 }
 
 static void signals_chlddead(int signo) {
-        int status=0;
+	int status=0;
 
-        if (signo == SIGCHLD) {
-		if (wait(&status) > 0) {
+	if (signo == SIGCHLD) {
+		while (waitpid(-1, &status, WNOHANG) > 0) {
 			++children_dead;
 		}
-        }
+	}
 
 	return;
 }

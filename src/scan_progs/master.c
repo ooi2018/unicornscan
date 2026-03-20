@@ -335,13 +335,38 @@ void run_scan(void) {
 
 	terminate_listeners();
 
-	do {
-		DBG(M_MST, "reading drones for listener statistics");
-		readable=drone_poll(s->master_tickrate);
-		if (readable > 0) {
-			master_read_drones();
-		}
-	} while (s->listeners != listener_stats);
+	{
+		time_t deadline=time(NULL) + s->ss->recv_timeout + 5;
+
+		do {
+			drone_t *lc=NULL;
+			time_t tnow=0;
+
+			DBG(M_MST, "reading drones for listener statistics");
+			readable=drone_poll(s->master_tickrate);
+			if (readable > 0) {
+				master_read_drones();
+			}
+
+			/* hard timeout guard: bail out if we have been spinning too long */
+			time(&tnow);
+			if (tnow >= deadline) {
+				ERR("post-scan listener stats loop timed out after %d seconds, %d listeners still pending",
+					(int)(s->ss->recv_timeout + 5),
+					s->listeners - listener_stats);
+				break;
+			}
+
+			/* catch any remaining dead listeners that master_read_drones may have missed */
+			for (lc=s->dlh->head; lc != NULL; lc=lc->next) {
+				if (lc->s > 0 && (lc->s_rw & XPOLL_DEAD) && !(lc->s_rw & XPOLL_READABLE)) {
+					ERR("post-scan: drone fd %d type %s dead without stats, marking dead",
+						lc->s, strdronetype(lc->type));
+					drone_updatestate(lc, DRONE_STATUS_DEAD);
+				}
+			}
+		} while (s->listeners != listener_stats);
+	}
 
 	/* cleanup traceroute session */
 	if (trace_sess != NULL) {
@@ -374,6 +399,13 @@ static void master_read_drones(void) {
 	} d_u;
 
 	for (c=s->dlh->head; c != NULL; c=c->next) {
+		/* detect dead drone sockets that will never send more messages */
+		if (c->s > 0 && (c->s_rw & XPOLL_DEAD) && !(c->s_rw & XPOLL_READABLE)) {
+			ERR("drone fd %d type %s reported dead without readable data, marking dead",
+				c->s, strdronetype(c->type));
+			drone_updatestate(c, DRONE_STATUS_DEAD);
+			continue;
+		}
 		if (c->s > 0 && c->s_rw & XPOLL_READABLE) {
 			int getret=0;
 

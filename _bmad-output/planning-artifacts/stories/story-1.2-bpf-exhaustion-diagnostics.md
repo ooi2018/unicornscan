@@ -1,6 +1,6 @@
 # Story 1.2: BPF Device Exhaustion Diagnostics
 
-Status: ready-for-dev
+Status: review
 
 ## Story
 
@@ -65,10 +65,24 @@ All code MUST follow `docs/jack-louis-coding-style-guide.md`.
 
 ### Agent Model Used
 
+claude-sonnet-4-6
+
 ### Debug Log References
+
+None — change was straightforward; the only build failures observed are pre-existing environment issues (missing dnet.h and ltdl.h) unrelated to this story.
 
 ### Completion Notes List
 
+- Added `#ifdef __APPLE__` guard around two `ERR()` calls before the `terminate()` in the `SOCK_LL` branch of `open_link()` in `send_packet.c`. The first message names the symptom ("all /dev/bpf* devices may be busy"), the second gives the exact diagnostic command (`lsof /dev/bpf* | grep -v unicornscan`).
+- Added a parallel `#ifdef __APPLE__` guard with a single `ERR()` in the `SOCK_IP` branch directing the user to run with `sudo`.
+- `terminate()` call preserved in both cases as required by AC #1 (fatal for link-layer mode).
+- Linux path is unchanged: both `#ifdef __APPLE__` blocks are invisible to non-Apple preprocessors (AC #2).
+- Build environment is missing external library headers (dnet.h, ltdl.h) globally; this is a pre-existing infrastructure gap and does not affect the correctness of the C change.
+
 ### Change Log
 
+- `src/scan_progs/send_packet.c`: Added macOS-specific `ERR()` diagnostic messages for `eth_open()` NULL return (SOCK_LL) and `ip_open()` NULL return (SOCK_IP).
+
 ### File List
+
+- `src/scan_progs/send_packet.c`

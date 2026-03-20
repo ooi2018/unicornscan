@@ -347,14 +347,41 @@ static void get_netroutes(void) {
 		return;
 	}
 
+	/*
+	 * Two-call sysctl pattern: the routing table can grow between
+	 * the size estimate and the actual read, causing ENOMEM on the
+	 * second call. Retry up to 3 times with a 25% size bump each
+	 * time to handle transient growth. If all retries fail, give up.
+	 */
+	{
+	int sysctl_retries=0;
+	size_t fetch_alen=0;
+
+retry_sysctl:
+	/* add 25% headroom to reduce retry frequency */
+	alen += alen / 4;
+
 	start=xmalloc(alen);
 	end=(char *)start + alen;
 	r_u.p=start;
 
-	if (sysctl(mib, 6, r_u.p, &alen, NULL, 0) < 0) {
+	fetch_alen=alen;
+	if (sysctl(mib, 6, r_u.p, &fetch_alen, NULL, 0) < 0) {
+		if (errno == ENOMEM && sysctl_retries < 3) {
+			/* routing table grew; free and retry with a larger buffer */
+			xfree(start);
+			start=NULL;
+			sysctl_retries++;
+			alen=fetch_alen; /* kernel updated alen with needed size */
+			DBG(M_RTE, "sysctl ENOMEM retry %d with alen %zu", sysctl_retries, alen);
+			goto retry_sysctl;
+		}
 		ERR("sysctl route table read: %s", strerror(errno));
 		xfree(start);
 		return;
+	}
+	/* update end pointer to actual data returned */
+	end=(char *)start + fetch_alen;
 	}
 
 	rt=New_Patricia(128);

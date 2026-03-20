@@ -36,6 +36,7 @@
 #define MAX_CHILDREN 16
 
 static int child_forked=0;
+static pid_t child_pids[MAX_CHILDREN];
 
 void chld_init(void) {
 
@@ -122,6 +123,7 @@ int chld_fork(void) {
 			terminate("execve `%s' fails", SENDER_PATH);
 		}
 
+		child_pids[child_forked]=chld_sender;
 		child_forked++;
 
 		s->forklocal &= ~(FORK_LOCAL_SENDER);
@@ -177,6 +179,7 @@ int chld_fork(void) {
 			terminate("execve %s fails", LISTENER_PATH);
 		}
 
+		child_pids[child_forked]=chld_listener;
 		child_forked++;
 
 		s->forklocal &= ~(FORK_LOCAL_LISTENER);
@@ -186,4 +189,48 @@ int chld_fork(void) {
 	}
 
 	return 1;
+}
+
+void chld_killall(void) {
+	int j=0;
+	pid_t pid=0;
+
+	/* send SIGTERM to all tracked children */
+	for (j=0; j < MAX_CHILDREN; j++) {
+		pid=child_pids[j];
+		if (pid > 0) {
+			kill(pid, SIGTERM);
+		}
+	}
+
+	/* wait 500ms for children to exit cleanly */
+	usleep(500000);
+
+	/* send SIGKILL to any child still alive */
+	for (j=0; j < MAX_CHILDREN; j++) {
+		pid=child_pids[j];
+		if (pid > 0) {
+			if (kill(pid, 0) == 0) {
+				kill(pid, SIGKILL);
+			}
+			/* ESRCH means child already dead, silently ignore */
+		}
+	}
+
+	return;
+}
+
+void chld_cleanup(void) {
+	static int cleanup_ran=0;
+
+	/* idempotent: only run once even if called multiple times */
+	if (cleanup_ran) {
+		return;
+	}
+
+	cleanup_ran=1;
+
+	chld_killall();
+
+	return;
 }
