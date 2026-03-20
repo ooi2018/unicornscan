@@ -11,12 +11,191 @@
 
 set -e
 
-INSTALL_DIR="/usr/share/unicornscan/alicorn"
-VAR_DIR="/var/lib/unicornscan/alicorn"
+# ---------------------------------------------------------------------------
+# Platform detection and path abstraction
+# ---------------------------------------------------------------------------
+PLATFORM="$(uname -s)"
+
+# Detect Homebrew prefix (macOS / Linuxbrew)
+detect_homebrew_prefix() {
+    if [ -n "$HOMEBREW_PREFIX" ]; then
+        echo "$HOMEBREW_PREFIX"
+    elif [ -x /opt/homebrew/bin/brew ]; then
+        echo "/opt/homebrew"           # Apple Silicon default
+    elif [ -x /usr/local/bin/brew ]; then
+        echo "/usr/local"              # Intel Mac / Linuxbrew default
+    else
+        echo ""
+    fi
+}
+
+# Return the directory where Alicorn application files are installed
+get_alicorn_dir() {
+    case "$PLATFORM" in
+        Darwin)
+            local hb
+            hb="$(detect_homebrew_prefix)"
+            if [ -n "$hb" ]; then
+                echo "$hb/share/unicornscan/alicorn"
+            else
+                echo "/usr/local/share/unicornscan/alicorn"
+            fi
+            ;;
+        *)
+            echo "/usr/share/unicornscan/alicorn"
+            ;;
+    esac
+}
+
+# Return the runtime / variable-data directory
+get_data_dir() {
+    case "$PLATFORM" in
+        Darwin)
+            local hb
+            hb="$(detect_homebrew_prefix)"
+            if [ -n "$hb" ]; then
+                echo "$hb/var/unicornscan/alicorn"
+            else
+                echo "$HOME/Library/Application Support/unicornscan/alicorn"
+            fi
+            ;;
+        *)
+            echo "/var/lib/unicornscan/alicorn"
+            ;;
+    esac
+}
+
+# Return the configuration directory
+get_config_dir() {
+    case "$PLATFORM" in
+        Darwin)
+            local hb
+            hb="$(detect_homebrew_prefix)"
+            if [ -n "$hb" ]; then
+                echo "$hb/etc/unicornscan"
+            else
+                echo "/usr/local/etc/unicornscan"
+            fi
+            ;;
+        *)
+            echo "/etc/unicornscan"
+            ;;
+    esac
+}
+
+INSTALL_DIR="$(get_alicorn_dir)"
+VAR_DIR="$(get_data_dir)"
 COMPOSE_FILE="$INSTALL_DIR/docker-compose.yml"
 ENV_FILE="$VAR_DIR/.env"
 PASSWORD_FILE="$VAR_DIR/.db_password"
-MODULES_CONF="/etc/unicornscan/modules.conf"
+MODULES_CONF="$(get_config_dir)/modules.conf"
+
+# ---------------------------------------------------------------------------
+# Cross-platform helper functions
+# ---------------------------------------------------------------------------
+
+# Check whether a TCP port is in use (listening)
+port_in_use() {
+    local port="$1"
+    case "$PLATFORM" in
+        Darwin)
+            lsof -i :"$port" -sTCP:LISTEN >/dev/null 2>&1
+            ;;
+        *)
+            ss -tuln 2>/dev/null | grep -q ":${port} " || \
+            netstat -tuln 2>/dev/null | grep -q ":${port} "
+            ;;
+    esac
+}
+
+# Identify the process name using a given port (best-effort)
+port_process() {
+    local port="$1"
+    case "$PLATFORM" in
+        Darwin)
+            lsof -i :"$port" -sTCP:LISTEN 2>/dev/null | tail -1 | awk '{print $1}'
+            ;;
+        *)
+            local proc
+            proc=$(ss -tulnp 2>/dev/null | grep ":${port} " | sed 's/.*users:(("\([^"]*\)".*/\1/' | head -1)
+            [ -z "$proc" ] && proc=$(lsof -i :"$port" 2>/dev/null | tail -1 | awk '{print $1}')
+            echo "$proc"
+            ;;
+    esac
+}
+
+# In-place sed that works on both GNU and BSD sed
+sed_inplace() {
+    case "$PLATFORM" in
+        Darwin) sed -i '' "$@" ;;
+        *)      sed -i "$@" ;;
+    esac
+}
+
+# Create a system group (used in install helpers, not in normal operation)
+create_system_group() {
+    local group="$1"
+    case "$PLATFORM" in
+        Darwin)
+            dseditgroup -o create -r "unicornscan system group" "$group" 2>/dev/null || true
+            ;;
+        *)
+            groupadd --system "$group" 2>/dev/null || true
+            ;;
+    esac
+}
+
+# Add a user to a group
+add_user_to_group() {
+    local user="$1"
+    local group="$2"
+    case "$PLATFORM" in
+        Darwin)
+            dseditgroup -o edit -a "$user" -t user "$group" 2>/dev/null || true
+            ;;
+        *)
+            usermod -aG "$group" "$user" 2>/dev/null || true
+            ;;
+    esac
+}
+
+# Platform-appropriate Docker install hint
+docker_install_hint() {
+    case "$PLATFORM" in
+        Darwin)
+            echo "Install Docker Desktop from: https://www.docker.com/products/docker-desktop/"
+            ;;
+        *)
+            echo "  sudo apt install docker.io docker-compose-v2"
+            ;;
+    esac
+}
+
+# Platform-appropriate Docker Compose install hint
+compose_install_hint() {
+    case "$PLATFORM" in
+        Darwin)
+            echo "Docker Compose is included with Docker Desktop."
+            echo "Install Docker Desktop from: https://www.docker.com/products/docker-desktop/"
+            ;;
+        *)
+            echo "Install with: sudo apt install docker-compose-v2"
+            ;;
+    esac
+}
+
+# Platform-appropriate hint for adding user to docker group
+docker_group_hint() {
+    case "$PLATFORM" in
+        Darwin)
+            echo "On macOS, ensure Docker Desktop is running."
+            ;;
+        *)
+            echo "Try: sudo systemctl start docker"
+            echo "Or add yourself to docker group: sudo usermod -aG docker \$USER"
+            ;;
+    esac
+}
 
 # Colors for output
 RED='\033[0;31m'
@@ -61,12 +240,11 @@ check_ports() {
     local port_info=""
 
     for port in 31337 31338 5432; do
-        if ss -tuln 2>/dev/null | grep -q ":${port} " || \
-           netstat -tuln 2>/dev/null | grep -q ":${port} "; then
+        if port_in_use "$port"; then
             ports_in_use="$ports_in_use $port"
             # Try to identify what's using the port
-            local proc=$(ss -tulnp 2>/dev/null | grep ":${port} " | sed 's/.*users:(("\([^"]*\)".*/\1/' | head -1)
-            [ -z "$proc" ] && proc=$(lsof -i :${port} 2>/dev/null | tail -1 | awk '{print $1}')
+            local proc
+            proc=$(port_process "$port")
             [ -n "$proc" ] && port_info="$port_info\n    Port $port: $proc"
         fi
     done
@@ -98,7 +276,7 @@ sync_modules_conf() {
             fi
             # Update password in existing pgsqldb config
             if [ -w "$MODULES_CONF" ]; then
-                sed -i "s/password=[^;[:space:]\"]*/password=${password}/" "$MODULES_CONF"
+                sed_inplace "s/password=[^;[:space:]\"]*/password=${password}/" "$MODULES_CONF"
                 # Verify the update worked
                 if grep -q "password=${password}" "$MODULES_CONF"; then
                     print_success "Updated $MODULES_CONF with database password"
@@ -146,7 +324,7 @@ init_env() {
     # Create .env file
     cat > "$ENV_FILE" << EOF
 # Alicorn Docker Configuration
-# Generated on $(date -Iseconds)
+# Generated on $(date '+%Y-%m-%dT%H:%M:%S%z')
 POSTGRES_USER=alicorn
 POSTGRES_PASSWORD=${PASSWORD}
 POSTGRES_DB=unicornscan
@@ -182,7 +360,7 @@ check_compose_available() {
         return 0
     else
         print_error "Docker Compose is not installed."
-        echo "Install with: sudo apt install docker-compose-v2"
+        compose_install_hint
         exit 1
     fi
 }
@@ -198,14 +376,13 @@ get_compose_cmd() {
 check_docker() {
     if ! command -v docker &> /dev/null; then
         print_error "Docker is not installed. Please install Docker first:"
-        echo "  sudo apt install docker.io docker-compose-v2"
+        docker_install_hint
         exit 1
     fi
 
     if ! docker info &> /dev/null; then
         print_error "Docker daemon is not running or you don't have permission."
-        echo "Try: sudo systemctl start docker"
-        echo "Or add yourself to docker group: sudo usermod -aG docker \$USER"
+        docker_group_hint
         exit 1
     fi
 }

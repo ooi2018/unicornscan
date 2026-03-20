@@ -1,0 +1,148 @@
+#!/bin/sh
+#
+# ChmodBPF - Set BPF device permissions for unicornscan
+#
+# This script creates the 'unicornscan' group (if it does not exist) and
+# sets ownership and permissions on all /dev/bpf* devices so that members
+# of the group can open them for raw packet capture without root privileges.
+#
+# Modeled after Wireshark's ChmodBPF approach.  Designed to be run by a
+# LaunchDaemon at system startup, but safe to invoke manually at any time.
+#
+# The script is idempotent: running it repeatedly produces the same result.
+#
+
+set -e
+
+BPF_GROUP="unicornscan"
+BPF_PREFIX="/dev/bpf"
+SCRIPT_NAME="$(basename "$0")"
+
+# ---------------------------------------------------------------------------
+# Logging helpers
+# ---------------------------------------------------------------------------
+
+log_info() {
+    logger -t "${SCRIPT_NAME}" "$1" 2>/dev/null || true
+    echo "${SCRIPT_NAME}: $1"
+}
+
+log_error() {
+    logger -p user.err -t "${SCRIPT_NAME}" "$1" 2>/dev/null || true
+    echo "${SCRIPT_NAME}: ERROR: $1" >&2
+}
+
+# ---------------------------------------------------------------------------
+# Verify we are running as root — BPF device ownership changes require it.
+# ---------------------------------------------------------------------------
+
+if [ "$(id -u)" -ne 0 ]; then
+    log_error "This script must be run as root."
+    exit 1
+fi
+
+# ---------------------------------------------------------------------------
+# Verify we are on macOS — this script uses macOS-specific tooling.
+# ---------------------------------------------------------------------------
+
+if [ "$(uname -s)" != "Darwin" ]; then
+    log_error "This script is intended for macOS (Darwin) only."
+    exit 1
+fi
+
+# ---------------------------------------------------------------------------
+# Ensure the unicornscan group exists.
+# dseditgroup -o read returns 0 if the group exists, nonzero otherwise.
+# ---------------------------------------------------------------------------
+
+if ! dseditgroup -o read "${BPF_GROUP}" >/dev/null 2>&1; then
+    log_info "Creating group '${BPF_GROUP}'."
+    if ! dseditgroup -o create -r "unicornscan BPF access" "${BPF_GROUP}"; then
+        log_error "Failed to create group '${BPF_GROUP}'."
+        exit 1
+    fi
+    log_info "Group '${BPF_GROUP}' created."
+else
+    log_info "Group '${BPF_GROUP}' already exists."
+fi
+
+# ---------------------------------------------------------------------------
+# macOS creates BPF device nodes on demand (when something opens /dev/bpf).
+# At early boot there may be none yet.  We force at least /dev/bpf0 to
+# exist by briefly opening it, then process every node that is present.
+# ---------------------------------------------------------------------------
+
+# Attempt to force /dev/bpf0 into existence if absent.  On modern macOS the
+# kernel creates the node the first time any process opens the path; opening
+# and immediately closing it is enough.  If this fails (e.g. SIP restrictions)
+# we continue anyway — there may already be nodes from other software.
+if [ ! -e "${BPF_PREFIX}0" ]; then
+    log_info "No BPF devices found yet; attempting to trigger /dev/bpf0 creation."
+    # The open(2) will create the devfs node even if it immediately fails
+    # with EACCES because we already are root, so cat should succeed.
+    cat "${BPF_PREFIX}0" >/dev/null 2>&1 || true
+fi
+
+# Collect every /dev/bpf* device.
+bpf_devices=""
+for dev in ${BPF_PREFIX}*; do
+    # Guard against the literal glob when nothing matches.
+    if [ ! -e "$dev" ]; then
+        continue
+    fi
+    bpf_devices="${bpf_devices} ${dev}"
+done
+
+if [ -z "${bpf_devices}" ]; then
+    log_info "No BPF devices found in /dev.  Nothing to do."
+    exit 0
+fi
+
+# ---------------------------------------------------------------------------
+# Set group ownership and permissions on each BPF device.
+# ---------------------------------------------------------------------------
+
+changed=0
+skipped=0
+
+for dev in ${bpf_devices}; do
+    # Read current ownership/permissions to avoid unnecessary writes.
+    current_group="$(stat -f '%Sg' "$dev" 2>/dev/null)"
+    current_mode="$(stat -f '%Lp' "$dev" 2>/dev/null)"
+
+    needs_chgrp=0
+    needs_chmod=0
+
+    if [ "$current_group" != "${BPF_GROUP}" ]; then
+        needs_chgrp=1
+    fi
+
+    if [ "$current_mode" != "660" ]; then
+        needs_chmod=1
+    fi
+
+    if [ "$needs_chgrp" -eq 0 ] && [ "$needs_chmod" -eq 0 ]; then
+        skipped=$((skipped + 1))
+        continue
+    fi
+
+    if [ "$needs_chgrp" -eq 1 ]; then
+        if ! chgrp "${BPF_GROUP}" "$dev"; then
+            log_error "Failed to chgrp '${BPF_GROUP}' on ${dev}."
+            continue
+        fi
+    fi
+
+    if [ "$needs_chmod" -eq 1 ]; then
+        if ! chmod 660 "$dev"; then
+            log_error "Failed to chmod 660 on ${dev}."
+            continue
+        fi
+    fi
+
+    changed=$((changed + 1))
+done
+
+log_info "BPF devices updated: ${changed} changed, ${skipped} already correct."
+
+exit 0

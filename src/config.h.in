@@ -72,6 +72,12 @@
 /* Define to 1 if you have the <IP2Location.h> header file. */
 #undef HAVE_IP2LOCATION_H
 
+/* Define to 1 if you have the 'kevent' function. */
+#undef HAVE_KEVENT
+
+/* Define to 1 if you have the 'kqueue' function. */
+#undef HAVE_KQUEUE
+
 /* Define to 1 if you have the 'ltdl' library (-lltdl). */
 #undef HAVE_LIBLTDL
 
@@ -140,6 +146,12 @@
    and to 0 otherwise. */
 #undef HAVE_REALLOC
 
+/* Define to 1 if you have the <sandbox.h> header file. */
+#undef HAVE_SANDBOX_H
+
+/* Define if macOS sandbox_init() is available */
+#undef HAVE_SANDBOX_INIT
+
 /* Define to 1 if you have the 'select' function. */
 #undef HAVE_SELECT
 
@@ -196,6 +208,9 @@
 
 /* Define to 1 if you have the <sys/stat.h> header file. */
 #undef HAVE_SYS_STAT_H
+
+/* Define to 1 if you have the <sys/sysctl.h> header file. */
+#undef HAVE_SYS_SYSCTL_H
 
 /* Define to 1 if you have the <sys/time.h> header file. */
 #undef HAVE_SYS_TIME_H
@@ -274,7 +289,7 @@
 /* Name of main binary */
 #undef TARGETNAME
 
-/* Use setreuid/setregid for privilege dropping */
+/* use setreuid/setregid for privilege dropping on Darwin */
 #undef USE_SETRE
 
 /* Define if backtrace is available */

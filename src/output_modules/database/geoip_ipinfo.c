@@ -33,6 +33,7 @@
  * 1. Explicit path from configuration
  * 2. IPINFO_DATABASE environment variable
  * 3. Standard system paths: /usr/share/IPinfo, /var/lib/GeoIP
+ * 4. macOS Homebrew paths: /opt/homebrew/share/GeoIP, /opt/homebrew/share/IPinfo
  *
  * Reference: https://ipinfo.io/developers/data-downloads
  */
@@ -91,6 +92,9 @@ static const char *search_paths[] = {
 	"/opt/IPinfo",
 	"/usr/share/GeoIP",
 	"/var/lib/GeoIP",
+	"/opt/homebrew/share/GeoIP",	/* macOS Apple Silicon Homebrew */
+	"/opt/homebrew/var/GeoIP",	/* macOS Homebrew alternative */
+	"/opt/homebrew/share/IPinfo",	/* macOS Apple Silicon Homebrew */
 	NULL
 };
 

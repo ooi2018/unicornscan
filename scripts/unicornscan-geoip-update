@@ -14,7 +14,18 @@
 
 set -e
 
-GEOIP_DIR="/usr/share/GeoIP"
+# Detect platform and set GeoIP directory accordingly
+if [ "$(uname -s)" = "Darwin" ]; then
+    # macOS: use Homebrew prefix if available, otherwise /usr/local/share/GeoIP
+    if command -v brew &>/dev/null; then
+        GEOIP_DIR="$(brew --prefix)/share/GeoIP"
+    else
+        GEOIP_DIR="/usr/local/share/GeoIP"
+    fi
+else
+    # Linux and other platforms
+    GEOIP_DIR="/usr/share/GeoIP"
+fi
 MODULES_CONF="/etc/unicornscan/modules.conf"
 WEB_PASSWORD_FILE="/var/lib/unicornscan/alicorn/.db_password"
 

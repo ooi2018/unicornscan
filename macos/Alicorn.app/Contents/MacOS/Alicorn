@@ -1,0 +1,273 @@
+#!/bin/bash
+# Alicorn.app launcher — macOS .app bundle entry point
+# Copyright (c) 2026 Robert E. Lee <robert@unicornscan.org>
+#
+# This script is the CFBundleExecutable for Alicorn.app.  It checks that
+# Docker Desktop is running, locates the unicornscan-alicorn management
+# script, starts the Alicorn stack, waits for the web UI to become
+# reachable, and opens the user's default browser.
+#
+# Exit codes:
+#   0  Success (browser opened)
+#   1  Docker not installed
+#   2  Docker daemon not running and user declined to wait
+#   3  unicornscan-alicorn script not found
+#   4  Stack failed to start
+#   5  Web UI did not become ready within timeout
+
+set -euo pipefail
+
+# ---------------------------------------------------------------------------
+# Constants
+# ---------------------------------------------------------------------------
+readonly ALICORN_PORT=31337
+readonly ALICORN_URL="http://localhost:${ALICORN_PORT}"
+readonly POLL_INTERVAL=2          # seconds between readiness checks
+readonly POLL_TIMEOUT=120         # total seconds to wait for web UI
+readonly DOCKER_WAIT_TIMEOUT=60   # seconds to wait for Docker daemon
+
+# ---------------------------------------------------------------------------
+# macOS dialog helpers (osascript / AppleScript)
+# ---------------------------------------------------------------------------
+
+# Display an alert dialog.  $1 = title, $2 = message, $3 = icon (stop,
+# caution, note).  Returns 0 always (informational, single OK button).
+alert() {
+    osascript -e "
+        display alert \"$1\" message \"$2\" as ${3:-critical}
+    " >/dev/null 2>&1 || true
+}
+
+# Display a dialog with OK / Cancel and return 0 (OK) or 1 (Cancel).
+confirm() {
+    osascript -e "
+        try
+            display dialog \"$1\" buttons {\"Cancel\", \"OK\"} default button \"OK\" with icon caution with title \"Alicorn\"
+            return \"OK\"
+        on error
+            return \"Cancel\"
+        end try
+    " 2>/dev/null | grep -q "OK"
+}
+
+# Display a notification banner (non-blocking).
+notify() {
+    osascript -e "
+        display notification \"$1\" with title \"Alicorn\" subtitle \"${2:-}\"
+    " >/dev/null 2>&1 || true
+}
+
+# ---------------------------------------------------------------------------
+# Logging — write to system log and stdout (Console.app can see syslog)
+# ---------------------------------------------------------------------------
+log() {
+    logger -t "Alicorn" "$*" 2>/dev/null || true
+    echo "[Alicorn] $*"
+}
+
+log_error() {
+    logger -t "Alicorn" -p user.error "$*" 2>/dev/null || true
+    echo "[Alicorn] ERROR: $*" >&2
+}
+
+# ---------------------------------------------------------------------------
+# Docker checks
+# ---------------------------------------------------------------------------
+
+docker_is_installed() {
+    command -v docker >/dev/null 2>&1
+}
+
+docker_daemon_is_running() {
+    docker info >/dev/null 2>&1
+}
+
+# Attempt to launch Docker Desktop and wait for the daemon to respond.
+# Returns 0 if the daemon comes up within DOCKER_WAIT_TIMEOUT, 1 otherwise.
+start_docker_desktop() {
+    log "Attempting to launch Docker Desktop..."
+    open -a "Docker" 2>/dev/null || open -a "Docker Desktop" 2>/dev/null || {
+        log_error "Could not launch Docker Desktop application."
+        return 1
+    }
+
+    local elapsed=0
+    while [ "$elapsed" -lt "$DOCKER_WAIT_TIMEOUT" ]; do
+        if docker_daemon_is_running; then
+            log "Docker daemon is now running (waited ${elapsed}s)."
+            return 0
+        fi
+        sleep 2
+        elapsed=$((elapsed + 2))
+    done
+
+    log_error "Docker daemon did not start within ${DOCKER_WAIT_TIMEOUT}s."
+    return 1
+}
+
+ensure_docker() {
+    # 1. Is Docker installed?
+    if ! docker_is_installed; then
+        log_error "Docker is not installed."
+        alert "Docker Not Found" \
+              "Docker Desktop is required to run Alicorn.\n\nPlease install Docker Desktop from:\nhttps://www.docker.com/products/docker-desktop/" \
+              "critical"
+        open "https://www.docker.com/products/docker-desktop/"
+        exit 1
+    fi
+
+    # 2. Is the daemon running?
+    if docker_daemon_is_running; then
+        log "Docker daemon is already running."
+        return 0
+    fi
+
+    # 3. Daemon not running — ask user whether to start it.
+    if confirm "Docker Desktop is not running.\n\nWould you like to start it now?  Alicorn will wait for it to become ready."; then
+        notify "Starting Docker Desktop..." "Please wait"
+        if start_docker_desktop; then
+            return 0
+        fi
+        alert "Docker Start Failed" \
+              "Docker Desktop did not start within ${DOCKER_WAIT_TIMEOUT} seconds.\n\nPlease start Docker Desktop manually and try again." \
+              "critical"
+        exit 2
+    else
+        log "User declined to start Docker Desktop."
+        exit 2
+    fi
+}
+
+# ---------------------------------------------------------------------------
+# Locate the unicornscan-alicorn management script
+# ---------------------------------------------------------------------------
+
+find_alicorn_script() {
+    # Search order:
+    #   1. Homebrew prefix (Apple Silicon, then Intel)
+    #   2. /usr/local/bin (manual install)
+    #   3. Anywhere on PATH
+    #   4. Relative to this .app bundle (development convenience)
+
+    local candidates=(
+        "/opt/homebrew/bin/unicornscan-alicorn"
+        "/usr/local/bin/unicornscan-alicorn"
+    )
+
+    # Check HOMEBREW_PREFIX if set
+    if [ -n "${HOMEBREW_PREFIX:-}" ]; then
+        candidates=("${HOMEBREW_PREFIX}/bin/unicornscan-alicorn" "${candidates[@]}")
+    fi
+
+    for candidate in "${candidates[@]}"; do
+        if [ -x "$candidate" ]; then
+            echo "$candidate"
+            return 0
+        fi
+    done
+
+    # Fall back to PATH lookup
+    local found
+    found="$(command -v unicornscan-alicorn 2>/dev/null || true)"
+    if [ -n "$found" ] && [ -x "$found" ]; then
+        echo "$found"
+        return 0
+    fi
+
+    # Development fallback: look relative to the .app bundle.  The repo
+    # layout has macos/Alicorn.app/Contents/MacOS/Alicorn and
+    # debian/unicornscan-alicorn.
+    local script_dir
+    script_dir="$(cd "$(dirname "$0")" && pwd)"
+    local dev_path="${script_dir}/../../../../debian/unicornscan-alicorn"
+    if [ -f "$dev_path" ] && [ -x "$dev_path" ]; then
+        echo "$(cd "$(dirname "$dev_path")" && pwd)/$(basename "$dev_path")"
+        return 0
+    fi
+
+    return 1
+}
+
+# ---------------------------------------------------------------------------
+# Wait for the web UI to respond to HTTP requests
+# ---------------------------------------------------------------------------
+
+wait_for_web_ui() {
+    log "Waiting for web UI at ${ALICORN_URL} (timeout: ${POLL_TIMEOUT}s)..."
+    notify "Starting Alicorn stack..." "Waiting for services"
+
+    local elapsed=0
+    while [ "$elapsed" -lt "$POLL_TIMEOUT" ]; do
+        # Accept any HTTP response (200, 301, 304, etc.) as "ready".
+        if curl -s -o /dev/null -w '' --max-time 2 "$ALICORN_URL" 2>/dev/null; then
+            log "Web UI is ready (waited ${elapsed}s)."
+            return 0
+        fi
+        sleep "$POLL_INTERVAL"
+        elapsed=$((elapsed + POLL_INTERVAL))
+    done
+
+    log_error "Web UI did not become ready within ${POLL_TIMEOUT}s."
+    return 1
+}
+
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
+
+main() {
+    log "Alicorn.app launcher starting (PID $$)."
+
+    # --- Docker ---
+    ensure_docker
+
+    # --- Locate management script ---
+    local alicorn_script
+    alicorn_script="$(find_alicorn_script)" || {
+        log_error "Could not find the unicornscan-alicorn management script."
+        alert "Script Not Found" \
+              "Could not locate the unicornscan-alicorn management script.\n\nLooked in:\n  /opt/homebrew/bin/\n  /usr/local/bin/\n  PATH\n\nPlease install unicornscan first." \
+              "critical"
+        exit 3
+    }
+    log "Using management script: ${alicorn_script}"
+
+    # --- Start the stack ---
+    # The management script's start command may prompt for orphan container
+    # removal (interactive read).  When launched from an .app bundle there is
+    # no controlling terminal, so pipe 'y' to auto-approve.  This is safe
+    # because the prompt only appears when leftover containers from a
+    # previous install are detected and would block the start anyway.
+    log "Running: ${alicorn_script} start"
+    notify "Starting Alicorn..." "Launching Docker containers"
+
+    local start_output
+    start_output="$(echo "y" | "$alicorn_script" start 2>&1)" || {
+        local exit_code=$?
+        log_error "unicornscan-alicorn start failed (exit ${exit_code})."
+        log_error "Output: ${start_output}"
+        alert "Start Failed" \
+              "The Alicorn stack failed to start (exit code ${exit_code}).\n\nCheck the logs with:\n  unicornscan-alicorn logs" \
+              "critical"
+        exit 4
+    }
+    log "Stack start command completed successfully."
+
+    # --- Wait for readiness ---
+    if ! wait_for_web_ui; then
+        alert "Not Ready" \
+              "The Alicorn web UI did not become reachable at ${ALICORN_URL} within ${POLL_TIMEOUT} seconds.\n\nThe containers may still be starting.  Check status with:\n  unicornscan-alicorn status" \
+              "caution"
+        exit 5
+    fi
+
+    # --- Open browser ---
+    log "Opening browser at ${ALICORN_URL}"
+    open "$ALICORN_URL"
+
+    notify "Alicorn is running" "Open ${ALICORN_URL} in your browser"
+    log "Alicorn.app launcher finished successfully."
+    exit 0
+}
+
+main "$@"

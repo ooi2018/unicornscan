@@ -1,0 +1,187 @@
+;;
+;; unicornscan-listener.sb - macOS sandbox profile for the listener process
+;;
+;; This profile restricts the listener (unilisten) after it has opened its
+;; pcap/BPF device and IPC socket but before it begins processing packets.
+;; The listener needs:
+;;   - Network access (BPF device already open, but needs raw socket ops)
+;;   - IPC over already-open Unix domain sockets
+;;   - sysctl reads for routing table queries
+;;   - Read access to system libraries (dyld, frameworks)
+;;   - No file writes except pcap dump (fd already open before sandbox)
+;;
+;; Profile language reference:
+;;   https://reverse.put.as/wp-content/uploads/2011/09/Apple-Sandbox-Guide-v1.0.pdf
+;;
+
+(version 1)
+
+;; Start with deny-all policy for maximum restriction
+(deny default)
+
+;; -----------------------------------------------------------------------
+;; Network operations
+;; -----------------------------------------------------------------------
+;; The listener captures packets via BPF (Berkeley Packet Filter).
+;; The BPF device fd is opened before sandboxing, but we need to allow
+;; network-related system calls for pcap_dispatch(), pcap_setfilter(),
+;; and IPC message passing over the Unix domain socket.
+(allow network*)
+
+;; -----------------------------------------------------------------------
+;; System call: sysctl
+;; -----------------------------------------------------------------------
+;; Required for reading the routing table (NET_RT_DUMP) and system
+;; information such as hw.pagesize used by libpcap internally.
+(allow sysctl-read)
+
+;; -----------------------------------------------------------------------
+;; Mach services
+;; -----------------------------------------------------------------------
+;; Allow Mach IPC lookups needed by system libraries (libSystem, dyld).
+;; Without this, basic libc functions (malloc, printf) can fail on macOS.
+(allow mach-lookup)
+
+;; -----------------------------------------------------------------------
+;; Signal handling
+;; -----------------------------------------------------------------------
+;; The master process sends signals (SIGUSR1 for sync, SIGTERM for
+;; shutdown) to the listener. Allow receiving signals from same-user
+;; processes.
+(allow signal (target self))
+
+;; -----------------------------------------------------------------------
+;; Process operations
+;; -----------------------------------------------------------------------
+;; Allow the listener to read its own process info and exit cleanly.
+(allow process-info-pidinfo (target self))
+(allow process-info-setcontrol (target self))
+(allow process-info* (target self))
+
+;; -----------------------------------------------------------------------
+;; File reads: system libraries and frameworks
+;; -----------------------------------------------------------------------
+;; The dynamic linker (dyld) and system frameworks must be readable
+;; for the process to function. These paths cover:
+;;   - /usr/lib: libSystem, libpcap, libc, dyld shared cache
+;;   - /System/Library: Core frameworks loaded by system libraries
+;;   - /dev/null, /dev/urandom: standard device nodes
+;;   - /private/var/db: dyld shared cache metadata
+(allow file-read*
+    (subpath "/usr/lib")
+    (subpath "/System/Library")
+    (subpath "/Library/Apple")
+    (subpath "/private/var/db/dyld")
+    (literal "/dev/null")
+    (literal "/dev/urandom")
+    (literal "/dev/random")
+    (literal "/private/etc/resolv.conf")
+    (literal "/etc/resolv.conf"))
+
+;; -----------------------------------------------------------------------
+;; File reads: BPF device nodes
+;; -----------------------------------------------------------------------
+;; On macOS, pcap opens /dev/bpfN devices. The fd is opened before
+;; sandboxing, but libpcap may stat or re-read device metadata.
+(allow file-read*
+    (regex #"^/dev/bpf[0-9]+$"))
+
+;; -----------------------------------------------------------------------
+;; File reads: unicornscan data directories
+;; -----------------------------------------------------------------------
+;; Allow reading the configuration and state directories. The chroot
+;; directory (LOCALSTATEDIR/unicornscan) contains the IPC sockets and
+;; any state files. The config directory (SYSCONFDIR/unicornscan) has
+;; config files that may be read if modules need late initialization.
+;;
+;; These paths use prefix matching to cover standard install locations:
+;;   /usr/local/var/unicornscan (default LOCALSTATEDIR)
+;;   /usr/local/etc/unicornscan (default SYSCONFDIR)
+;;   /opt/homebrew/var/unicornscan (Homebrew ARM64)
+;;   /opt/homebrew/etc/unicornscan (Homebrew ARM64)
+(allow file-read*
+    (subpath "/usr/local/var/unicornscan")
+    (subpath "/usr/local/etc/unicornscan")
+    (subpath "/opt/homebrew/var/unicornscan")
+    (subpath "/opt/homebrew/etc/unicornscan")
+    (subpath "/usr/local/lib/unicornscan")
+    (subpath "/opt/homebrew/lib/unicornscan"))
+
+;; -----------------------------------------------------------------------
+;; File reads: Homebrew library paths
+;; -----------------------------------------------------------------------
+;; libpcap and libdnet may be installed via Homebrew. The listener
+;; process needs to access shared libraries at runtime via dyld.
+(allow file-read*
+    (subpath "/usr/local/lib")
+    (subpath "/opt/homebrew/lib")
+    (subpath "/usr/local/Cellar")
+    (subpath "/opt/homebrew/Cellar"))
+
+;; -----------------------------------------------------------------------
+;; IPC: Unix domain sockets
+;; -----------------------------------------------------------------------
+;; The listener communicates with the master process over a Unix domain
+;; socket in LOCALSTATEDIR/unicornscan/. The socket fd is typically
+;; already open, but we allow socket file operations for accept/bind
+;; that may occur during IPC setup.
+(allow file-read* file-write*
+    (regex #"^/usr/local/var/unicornscan/(send|listen)$")
+    (regex #"^/opt/homebrew/var/unicornscan/(send|listen)$")
+    (regex #"^/private/var/unicornscan/(send|listen)$")
+    (regex #"^/tmp/unicornscan-[0-9]+/(send|listen)$")
+    (regex #"^/private/tmp/unicornscan-[0-9]+/(send|listen)$"))
+
+;; Also allow XDG_RUNTIME_DIR based socket paths
+(allow file-read* file-write*
+    (regex #"^/private/var/folders/.*/unicornscan/(send|listen)$")
+    (regex #"^/var/folders/.*/unicornscan/(send|listen)$"))
+
+;; -----------------------------------------------------------------------
+;; File writes: pcap dump files
+;; -----------------------------------------------------------------------
+;; If --pcap-log is used, the dump file fd is opened before sandbox
+;; activation. The file-write permission here is a safety net in case
+;; pcap_dump_open needs to create or truncate the file.
+;; We allow writing to /tmp and common output locations.
+(allow file-write*
+    (subpath "/tmp")
+    (subpath "/private/tmp"))
+
+;; -----------------------------------------------------------------------
+;; File reads: /dev and /private
+;; -----------------------------------------------------------------------
+;; Allow reading basic filesystem metadata. stat() calls on /dev,
+;; /private/etc, etc. are common from libc.
+(allow file-read-metadata
+    (literal "/")
+    (literal "/dev")
+    (literal "/private")
+    (literal "/private/etc")
+    (literal "/etc")
+    (literal "/tmp")
+    (literal "/private/tmp")
+    (literal "/var")
+    (literal "/private/var")
+    (literal "/usr")
+    (literal "/usr/lib")
+    (literal "/usr/local")
+    (literal "/opt")
+    (literal "/opt/homebrew"))
+
+;; -----------------------------------------------------------------------
+;; IOKit (required by libpcap on macOS)
+;; -----------------------------------------------------------------------
+;; libpcap uses IOKit for BPF device management on macOS.
+(allow iokit-open)
+
+;; -----------------------------------------------------------------------
+;; Deny everything else (implicit from deny default)
+;; -----------------------------------------------------------------------
+;; All operations not explicitly allowed above are denied.
+;; This includes:
+;;   - file-write* to arbitrary paths
+;;   - process-exec (cannot spawn new processes)
+;;   - process-fork (cannot fork)
+;;   - file-write-create (cannot create new files outside allowed paths)
+;;   - system-socket (raw socket creation -- BPF fd is already open)

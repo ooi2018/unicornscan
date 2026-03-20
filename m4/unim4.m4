@@ -92,7 +92,7 @@ AC_SUBST(RANDOM_DEVICE)
 
 AC_DEFUN([AC_UNI_LIBDNET], [
 AC_MSG_CHECKING(for libdnet/libdumbnet)
-default_libdnet_directories="/usr /usr/local"
+default_libdnet_directories="/usr /usr/local ${HOMEBREW_PREFIX}/opt/libdnet"
 lookin=$default_libdnet_directories
 AC_ARG_WITH(libdnet,
 [  --with-libdnet=PREFIX   use already installed libdnet in PREFIX
@@ -189,6 +189,14 @@ AC_ARG_WITH(geoip-db,
 [geoip_db_path="$withval"],
 [geoip_db_path=""])
 
+dnl Add Homebrew pkg-config paths for libmaxminddb if available
+if test -n "$HOMEBREW_PREFIX"; then
+    if test -d "${HOMEBREW_PREFIX}/opt/libmaxminddb/lib/pkgconfig"; then
+        PKG_CONFIG_PATH="${HOMEBREW_PREFIX}/opt/libmaxminddb/lib/pkgconfig:${PKG_CONFIG_PATH}"
+        export PKG_CONFIG_PATH
+    fi
+fi
+
 dnl Check for libmaxminddb (modern, actively maintained)
 geoip_found=no
 PKG_CHECK_MODULES([MAXMINDDB], [libmaxminddb >= 1.0.0], [
@@ -258,6 +266,15 @@ fi
 
 dnl find pcap, or just make it
 AC_DEFUN([AC_UNI_LIBPCAP], [
+dnl Add Homebrew libpcap paths if available
+if test -n "$HOMEBREW_PREFIX"; then
+    if test -d "${HOMEBREW_PREFIX}/opt/libpcap/include"; then
+        CPPFLAGS="$CPPFLAGS -I${HOMEBREW_PREFIX}/opt/libpcap/include"
+    fi
+    if test -d "${HOMEBREW_PREFIX}/opt/libpcap/lib"; then
+        LDFLAGS="$LDFLAGS -L${HOMEBREW_PREFIX}/opt/libpcap/lib"
+    fi
+fi
 AC_MSG_CHECKING([for libpcap (http://www.tcpdump.org)])
 AC_CHECK_LIB([pcap], [pcap_open_live],[
  AC_MSG_CHECKING([for pcap_lib_version])

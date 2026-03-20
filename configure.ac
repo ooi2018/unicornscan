@@ -81,6 +81,8 @@ AC_CHECK_HEADERS([sys/wait.h])
 AC_CHECK_HEADERS([dirent.h])
 AC_CHECK_HEADERS([sys/time.h])
 AC_CHECK_HEADERS([fcntl.h inttypes.h malloc.h memory.h netdb.h stddef.h stdint.h stdlib.h string.h sys/ioctl.h sys/param.h sys/time.h unistd.h limits.h])
+AC_CHECK_HEADERS([sys/sysctl.h], [], [], [#include <sys/types.h>
+])
 
 AC_CHECK_HEADERS([sys/socket.h], [], [], [#include <sys/types.h>
 ])
@@ -211,7 +213,7 @@ esac
 AC_SUBST(NOPRIV_USER)
 
 case "${host_cpu}" in
-x86_64)
+x86_64|aarch64|arm64)
 	U_CFLAGS="${U_CFLAGS} -fPIC"
 	;;
 esac
@@ -227,12 +229,44 @@ case "${host_os}" in
 	AC_DEFINE([USE_SETRE], [1], [Use setreuid/setregid for privilege dropping])
 	;;
 *darwin*)
+	AC_DEFINE([USE_SETRE], [1], [use setreuid/setregid for privilege dropping on Darwin])
 	;;
 *solaris*)
 	;;
 *aix*)
 	;;
 esac
+
+dnl macOS-specific feature detection
+AC_CHECK_FUNCS([kqueue kevent])
+AC_CHECK_FUNCS([sandbox_init])
+AC_CHECK_HEADERS([sandbox.h])
+
+dnl macOS sandbox profile path for the listener process
+dnl The profile is installed to datadir/unicornscan/ alongside other data files
+if test "$ac_cv_func_sandbox_init" = "yes" && test "$ac_cv_header_sandbox_h" = "yes"; then
+    AC_DEFINE([HAVE_SANDBOX_INIT], [1], [Define if macOS sandbox_init() is available])
+    AC_MSG_NOTICE([macOS sandbox support enabled])
+fi
+
+dnl Detect Homebrew prefix for macOS
+HOMEBREW_PREFIX=""
+if test "x$host_os" != "x"; then
+    case "$host_os" in
+    *darwin*)
+        if test -x /opt/homebrew/bin/brew; then
+            HOMEBREW_PREFIX="/opt/homebrew"
+        elif test -x /usr/local/bin/brew; then
+            HOMEBREW_PREFIX="/usr/local"
+        fi
+        if test -n "$HOMEBREW_PREFIX"; then
+            AC_MSG_NOTICE([Found Homebrew at $HOMEBREW_PREFIX])
+            CPPFLAGS="$CPPFLAGS -I${HOMEBREW_PREFIX}/include"
+            LDFLAGS="$LDFLAGS -L${HOMEBREW_PREFIX}/lib"
+        fi
+        ;;
+    esac
+fi
 
 DBTYPES=""
 PG_LDFLAGS=""
@@ -263,7 +297,7 @@ if test "$with_pgsql" != "no"; then
     if test "$with_pgsql" != "yes" && test -d "$with_pgsql"; then
       pgsql_directory="$with_pgsql"
     else
-      pgsql_directory="/usr /usr/local /usr/local/pgsql /usr/local/postgresql"
+      pgsql_directory="/usr /usr/local /usr/local/pgsql /usr/local/postgresql ${HOMEBREW_PREFIX}/opt/postgresql@16 ${HOMEBREW_PREFIX}/opt/postgresql ${HOMEBREW_PREFIX}/opt/libpq"
     fi
 
     for i in $pgsql_directory; do
@@ -277,7 +311,7 @@ if test "$with_pgsql" != "no"; then
       if test -n "$PGSQL_INC_DIR"; then
         dnl Find library
         for libdir in "$i/lib" "$i/lib/postgresql" "$i/lib64" "$i/lib/x86_64-linux-gnu"; do
-          if test -r "$libdir/libpq.so" || test -r "$libdir/libpq.a"; then
+          if test -r "$libdir/libpq.so" || test -r "$libdir/libpq.a" || test -r "$libdir/libpq.dylib"; then
             PGSQL_LIB_DIR="$libdir"
             break
           fi
@@ -398,6 +432,9 @@ fi
 echo
 echo "--                Configuration Summary                                      --"
 echo "prefix:                           ${prefix}"
+if test -n "$HOMEBREW_PREFIX"; then
+echo "Homebrew prefix:                  ${HOMEBREW_PREFIX}"
+fi
 echo "PostgreSQL Support:               $pgsql"
 echo "GeoIP support (MaxMind):          $geoip_found"
 echo "GeoIP support (IP2Location):      $ip2location_found"

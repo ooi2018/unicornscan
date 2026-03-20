@@ -34,6 +34,14 @@
 #ifndef _GNU_SOURCE
 #define _GNU_SOURCE
 #endif
+/* Expose BSD/Darwin-specific APIs (AF_ROUTE, NET_RT_DUMP, etc.) on macOS */
+#ifdef __APPLE__
+#ifndef _DARWIN_C_SOURCE
+#define _DARWIN_C_SOURCE
+#endif
+#endif
+
+#include <signal.h> /* XXX needed here for SIGUSR1 in UNI_SYNC_SIGNAL below */
 
 /*
  * Project constants

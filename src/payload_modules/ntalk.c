@@ -87,11 +87,11 @@ int create_payload(uint8_t **data, uint32_t *dlen, void *ir) {
 	ret->pid=0x5590;
 
 	ret->src.sin_port=htons(518);
-	ret->src.sin_family=htons(AF_INET);
+	ret->src.sin_family=AF_INET;
 	ret->src.sin_addr.s_addr=s_u.sin->sin_addr.s_addr;
 
 	ret->dest.sin_port=htons(518);
-	ret->dest.sin_family=htons(AF_INET);
+	ret->dest.sin_family=AF_INET;
 	/* XXX */
 	ret->dest.sin_addr.s_addr=0;
 

@@ -27,6 +27,10 @@
 #include <unilib/output.h>
 #include <unilib/arch.h>
 
+#ifdef HAVE_SANDBOX_H
+#include <sandbox.h>
+#endif
+
 #if 0
 #define ROUTE_FILE "/proc/net/route"
 
@@ -168,6 +172,114 @@ int drop_privs(void) {
 	return 1;
 }
 #else
+
+#ifdef HAVE_SANDBOX_INIT
+/*
+ * apply_sandbox - Apply a macOS sandbox profile to the current process.
+ *
+ * Reads a sandbox profile from disk and passes it to sandbox_init()
+ * with SANDBOX_NAMED. This replaces chroot() on macOS
+ * because:
+ *   1. chroot() on macOS requires root and is poorly supported
+ *   2. sandbox profiles provide finer-grained control (network, IPC,
+ *      sysctl, file reads) than a simple filesystem jail
+ *   3. The sandbox persists for the lifetime of the process and cannot
+ *      be escaped, unlike chroot on some systems
+ *
+ * The profile path is set at compile time via SANDBOX_PROFILE (from
+ * configure --datadir). Falls back gracefully if the profile is missing
+ * or sandbox_init() fails, since some macOS versions or configurations
+ * may not support it.
+ *
+ * Returns: 1 on success, 0 if sandbox was not applied (non-fatal),
+ *         -1 on hard failure.
+ */
+static int apply_sandbox(void) {
+	char *errbuf=NULL;
+	int ret=0;
+	FILE *fp=NULL;
+	char *profile_str=NULL;
+	long file_len=0;
+	size_t read_len=0;
+
+#ifndef SANDBOX_PROFILE
+	DBG(M_CLD, "SANDBOX_PROFILE not defined at compile time, skipping sandbox");
+	return 0;
+#else
+	/*
+	 * Read the sandbox profile from disk. We cannot use
+	 * SANDBOX_NAMED_EXTERNAL with a bare filename -- that looks up
+	 * profiles in /usr/share/sandbox which we do not control. Instead,
+	 * read the profile text and pass it via SANDBOX_NAMED with the
+	 * profile content as the "name" parameter. Apple's sandbox_init()
+	 * interprets SANDBOX_NAMED as a profile string when it starts with
+	 * '(' (the opening paren of Scheme syntax).
+	 */
+	fp=fopen(SANDBOX_PROFILE, "r");
+	if (fp == NULL) {
+		ERR("sandbox profile `%s' not found: %s (sandboxing skipped)",
+			SANDBOX_PROFILE, strerror(errno));
+		return 0;
+	}
+
+	/* Determine file size */
+	if (fseek(fp, 0, SEEK_END) != 0) {
+		ERR("fseek on sandbox profile fails: %s", strerror(errno));
+		fclose(fp);
+		return 0;
+	}
+	file_len=ftell(fp);
+	if (file_len <= 0 || file_len > 65536) {
+		ERR("sandbox profile has invalid size %ld", file_len);
+		fclose(fp);
+		return 0;
+	}
+	rewind(fp);
+
+	profile_str=(char *)xmalloc((size_t)file_len + 1);
+	read_len=fread(profile_str, 1, (size_t)file_len, fp);
+	fclose(fp);
+
+	if (read_len != (size_t)file_len) {
+		ERR("short read on sandbox profile: expected %ld got " STFMT,
+			file_len, read_len);
+		xfree(profile_str);
+		return 0;
+	}
+	profile_str[file_len]='\0';
+
+	DBG(M_CLD, "applying macOS sandbox profile from `%s' (%ld bytes)",
+		SANDBOX_PROFILE, file_len);
+
+	/*
+	 * sandbox_init with SANDBOX_NAMED: when the profile string begins
+	 * with '(' it is interpreted as inline profile text rather than a
+	 * named profile lookup.
+	 */
+	ret=sandbox_init(profile_str, SANDBOX_NAMED, &errbuf);
+	xfree(profile_str);
+
+	if (ret != 0) {
+		ERR("sandbox_init failed: %s (sandboxing skipped)",
+			errbuf ? errbuf : "unknown error");
+		if (errbuf != NULL) {
+			sandbox_free_error(errbuf);
+		}
+		/*
+		 * Non-fatal: continue without sandbox. This allows the
+		 * scanner to work on macOS versions where sandbox_init()
+		 * is unsupported or where the profile uses unsupported
+		 * operations.
+		 */
+		return 0;
+	}
+
+	VRB(1, "macOS sandbox applied from `%s'", SANDBOX_PROFILE);
+	return 1;
+#endif /* SANDBOX_PROFILE */
+}
+#endif /* HAVE_SANDBOX_INIT */
+
 int drop_privs(void) {
 	struct passwd *pw_ent=NULL;
 	uid_t myuid;
@@ -179,8 +291,66 @@ int drop_privs(void) {
 	myuid=pw_ent->pw_uid;
 	mygid=pw_ent->pw_gid;
 
+	/*
+	 * If we are already running as a non-root user (e.g., via macOS
+	 * ChmodBPF group access or similar non-setuid setup), then we
+	 * cannot setreuid/setregid to NOPRIV_USER — only root can change
+	 * to a different user. In this case, skip the UID/GID drop since
+	 * we are already unprivileged.
+	 */
+	if (getuid() != 0) {
+		VRB(1, "already running as non-root (uid %d), skipping privilege drop", getuid());
+#ifdef HAVE_SANDBOX_INIT
+		if (apply_sandbox() < 0) {
+			ERR("sandbox apply returned hard failure");
+			return -1;
+		}
+#endif
+		return 1;
+	}
+
 	/* XXX audit open fd's */
 
+#ifdef HAVE_SANDBOX_INIT
+	/*
+	 * On macOS, use sandbox_init() instead of chroot(). The sandbox
+	 * profile restricts file access, prevents process spawning, and
+	 * limits system calls -- providing stronger isolation than chroot.
+	 *
+	 * The sandbox is applied BEFORE dropping UID/GID because:
+	 *   1. sandbox_init() itself does not require root
+	 *   2. The sandbox cannot be removed once applied, regardless of
+	 *      privilege level, so order does not matter for security
+	 *   3. Applying it first means the UID drop also happens inside
+	 *      the sandbox, adding defense in depth
+	 *
+	 * We chdir to CHROOT_DIR for consistency with the Linux path --
+	 * the working directory will be the state directory either way.
+	 */
+	if (chdir(CHROOT_DIR) < 0) {
+		/* Non-fatal on macOS: the directory may not exist if installed
+		 * via Homebrew without running the full install target */
+		DBG(M_CLD, "chdir to `%s' fails: %s (continuing)", CHROOT_DIR,
+			strerror(errno));
+	}
+
+	if (apply_sandbox() < 0) {
+		ERR("sandbox apply returned hard failure");
+		return -1;
+	}
+#else
+	/*
+	 * On Linux and other systems, use traditional chroot() to jail
+	 * the listener process into CHROOT_DIR (LOCALSTATEDIR/TARGETNAME,
+	 * typically /usr/local/var/unicornscan). This limits filesystem
+	 * access to that subtree after the call.
+	 *
+	 * Note: chroot() was removed from POSIX.1-2001 and may not be
+	 * declared when _POSIX_C_SOURCE >= 200112L. We provide our own
+	 * declaration for portability.
+	 */
+	{
+	extern int chroot(const char *);
 	if (chdir(CHROOT_DIR) < 0) {
 		ERR("chdir to `%s' fails", CHROOT_DIR);
 		return -1;
@@ -195,6 +365,8 @@ int drop_privs(void) {
 		ERR("chdir to / fails");
 		return -1;
 	}
+	} /* end chroot block scope */
+#endif /* HAVE_SANDBOX_INIT */
 
 #if defined(USE_SETRES)
 	if (setresgid(mygid, mygid, mygid) != 0) {

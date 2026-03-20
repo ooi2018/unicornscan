@@ -29,6 +29,7 @@
  * 1. Explicit path from configuration
  * 2. GEOIP_DATABASE environment variable
  * 3. Standard system paths: /usr/share/GeoIP, /var/lib/GeoIP, /usr/local/share/GeoIP
+ * 4. macOS Homebrew paths: /opt/homebrew/share/GeoIP, /opt/homebrew/var/GeoIP
  */
 
 #include <config.h>
@@ -88,6 +89,8 @@ static const char *search_paths[] = {
 	"/var/lib/GeoIP",
 	"/usr/local/share/GeoIP",
 	"/opt/GeoIP",
+	"/opt/homebrew/share/GeoIP",	/* macOS Apple Silicon Homebrew */
+	"/opt/homebrew/var/GeoIP",	/* macOS Homebrew alternative */
 	NULL
 };
 

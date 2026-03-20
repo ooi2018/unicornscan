@@ -22,6 +22,7 @@
 #include <sys/socket.h>
 #include <netdb.h>
 #include <errno.h>
+#include <signal.h>
 #include <netinet/tcp.h> /* TCP_NODELAY */
 #include <sys/un.h>
 #include <arpa/inet.h> /* inet_ntop, INET_ADDRSTRLEN */

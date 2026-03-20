@@ -283,13 +283,8 @@ void recv_packet(void) {
 
 #ifdef PCAP_D_IN
 	if (pcap_setdirection(pdev, PCAP_D_IN) < 0) {
-		ERR("cant set pcap direction to in, exiting");
-
-		DBG(M_IPC, "sending ready error message to parent");
-		if (send_message(lc_s, MSG_READY, MSG_STATUS_ERROR, NULL, 0) < 0) {
-			terminate("sant send message ready error");
-		}
-		terminate("informed parent, exiting");
+		/* non-fatal warning — scanning still works without it */
+		VRB(0, "pcap_setdirection failed: %s (scan results may include own packets)", pcap_geterr(pdev));
 	}
 #endif
 

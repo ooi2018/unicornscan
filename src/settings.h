@@ -55,8 +55,14 @@ union sock_u {
 	struct sockaddr_storage *ss;
 	struct sockaddr_in *sin;
 	struct sockaddr_in6 *sin6;
+#ifdef AF_PACKET
 	struct sockaddr_ll *sl;
+#endif
+#ifdef AF_LINK
+	struct sockaddr_dl *sdl;
+#endif
 	struct f_s *fs;
+	void *raw;
 };
 
 union csock_u {
@@ -64,8 +70,14 @@ union csock_u {
 	const struct sockaddr_storage *ss;
 	const struct sockaddr_in *sin;
 	const struct sockaddr_in6 *sin6;
+#ifdef AF_PACKET
 	const struct sockaddr_ll *sl;
+#endif
+#ifdef AF_LINK
+	const struct sockaddr_dl *sdl;
+#endif
 	const struct f_s *fs;
+	const void *raw;
 };
 
 /*

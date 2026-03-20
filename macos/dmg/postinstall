@@ -1,0 +1,180 @@
+#!/bin/sh
+#
+# postinstall — macOS installer post-flight script for unicornscan
+#
+# Runs after the package payload has been written to disk.  This script:
+#   1. Loads the ChmodBPF LaunchDaemon (sets /dev/bpf* permissions at boot)
+#   2. Creates the 'unicornscan' group (for BPF device access)
+#   3. Adds the installing user to that group
+#
+# This script is executed by the macOS Installer framework as root.
+# Exit 0 = success, non-zero = report error (files are already installed).
+#
+
+set -e
+
+SCRIPT_NAME="$(basename "$0")"
+BPF_GROUP="unicornscan"
+PLIST_PATH="/Library/LaunchDaemons/org.unicornscan.ChmodBPF.plist"
+CHMODBPF_PATH="/usr/local/bin/ChmodBPF"
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+log_info() {
+    logger -t "unicornscan-postinstall" "$1" 2>/dev/null || true
+    echo "${SCRIPT_NAME}: $1"
+}
+
+log_warn() {
+    logger -p user.warning -t "unicornscan-postinstall" "$1" 2>/dev/null || true
+    echo "${SCRIPT_NAME}: WARNING: $1" >&2
+}
+
+log_error() {
+    logger -p user.err -t "unicornscan-postinstall" "$1" 2>/dev/null || true
+    echo "${SCRIPT_NAME}: ERROR: $1" >&2
+}
+
+# ---------------------------------------------------------------------------
+# Step 1: Load the ChmodBPF LaunchDaemon
+# ---------------------------------------------------------------------------
+# If a previous version is already loaded, unload it first so we pick up
+# any changes to the plist or the ChmodBPF script itself.
+
+log_info "Configuring ChmodBPF LaunchDaemon..."
+
+if [ ! -f "${PLIST_PATH}" ]; then
+    log_warn "LaunchDaemon plist not found at ${PLIST_PATH}."
+    log_warn "BPF device permissions will not be set automatically at boot."
+    log_warn "You can install it manually from the macos/ directory."
+else
+    # Ensure the ChmodBPF script is executable.
+    if [ -f "${CHMODBPF_PATH}" ]; then
+        chmod 755 "${CHMODBPF_PATH}"
+        chown root:wheel "${CHMODBPF_PATH}"
+    else
+        log_warn "ChmodBPF script not found at ${CHMODBPF_PATH}."
+    fi
+
+    # Ensure correct ownership on the plist.
+    chown root:wheel "${PLIST_PATH}"
+    chmod 644 "${PLIST_PATH}"
+
+    # Unload if already present (ignore errors — may not be loaded).
+    if launchctl list org.unicornscan.ChmodBPF >/dev/null 2>&1; then
+        log_info "Unloading existing ChmodBPF daemon..."
+        launchctl unload "${PLIST_PATH}" 2>/dev/null || true
+    fi
+
+    # Load the daemon.  RunAtLoad=true in the plist means ChmodBPF will
+    # execute immediately, setting /dev/bpf* permissions right now.
+    if launchctl load "${PLIST_PATH}"; then
+        log_info "ChmodBPF LaunchDaemon loaded successfully."
+        log_info "BPF device permissions will be set at every boot."
+    else
+        log_warn "Failed to load ChmodBPF LaunchDaemon."
+        log_warn "You may need to load it manually:"
+        log_warn "  sudo launchctl load ${PLIST_PATH}"
+    fi
+fi
+
+# ---------------------------------------------------------------------------
+# Step 2: Create the 'unicornscan' group
+# ---------------------------------------------------------------------------
+# The ChmodBPF script also creates the group, but we do it here too for
+# the case where the daemon did not load successfully.
+
+log_info "Checking for '${BPF_GROUP}' group..."
+
+if dseditgroup -o read "${BPF_GROUP}" >/dev/null 2>&1; then
+    log_info "Group '${BPF_GROUP}' already exists."
+else
+    log_info "Creating group '${BPF_GROUP}'..."
+    if dseditgroup -o create -r "unicornscan BPF access" "${BPF_GROUP}"; then
+        log_info "Group '${BPF_GROUP}' created."
+    else
+        log_error "Failed to create group '${BPF_GROUP}'."
+        log_error "You can create it manually with:"
+        log_error "  sudo dseditgroup -o create -r 'unicornscan BPF access' ${BPF_GROUP}"
+        # Do not exit — the package files are already installed.
+    fi
+fi
+
+# ---------------------------------------------------------------------------
+# Step 3: Add the installing user to the unicornscan group
+# ---------------------------------------------------------------------------
+# Determine who ran the installer.  The macOS Installer passes the
+# installing user's name in $USER or we can fall back to the console user.
+
+REAL_USER="${USER:-}"
+if [ -z "${REAL_USER}" ] || [ "${REAL_USER}" = "root" ]; then
+    REAL_USER="$(stat -f '%Su' /dev/console 2>/dev/null || true)"
+fi
+
+if [ -z "${REAL_USER}" ] || [ "${REAL_USER}" = "root" ]; then
+    log_warn "Could not determine a non-root user to add to '${BPF_GROUP}'."
+    log_warn "Add users manually with:"
+    log_warn "  sudo dseditgroup -o edit -a USERNAME -t user ${BPF_GROUP}"
+else
+    if dseditgroup -o checkmember -m "${REAL_USER}" "${BPF_GROUP}" >/dev/null 2>&1; then
+        log_info "User '${REAL_USER}' is already a member of '${BPF_GROUP}'."
+    else
+        log_info "Adding user '${REAL_USER}' to group '${BPF_GROUP}'..."
+        if dseditgroup -o edit -a "${REAL_USER}" -t user "${BPF_GROUP}"; then
+            log_info "User '${REAL_USER}' added to '${BPF_GROUP}'."
+        else
+            log_error "Failed to add '${REAL_USER}' to '${BPF_GROUP}'."
+            log_error "Add manually with:"
+            log_error "  sudo dseditgroup -o edit -a ${REAL_USER} -t user ${BPF_GROUP}"
+        fi
+    fi
+fi
+
+# ---------------------------------------------------------------------------
+# Step 4: Create the localstatedir for IPC sockets
+# ---------------------------------------------------------------------------
+
+VARDIR="/usr/local/var/unicornscan"
+if [ ! -d "${VARDIR}" ]; then
+    log_info "Creating state directory ${VARDIR}..."
+    mkdir -p "${VARDIR}"
+    chmod 755 "${VARDIR}"
+fi
+
+# ---------------------------------------------------------------------------
+# Done
+# ---------------------------------------------------------------------------
+
+echo ""
+echo "=========================================================="
+echo "  Unicornscan installation complete."
+echo ""
+echo "  BPF device permissions have been configured."
+echo "  The 'unicornscan' group controls packet-capture access."
+echo ""
+if [ -n "${REAL_USER}" ] && [ "${REAL_USER}" != "root" ]; then
+echo "  User '${REAL_USER}' has been added to the '${BPF_GROUP}'"
+echo "  group.  You MUST log out and log back in (or reboot)"
+echo "  for the group membership to take effect."
+echo ""
+fi
+echo "  Quick start:"
+echo "    unicornscan -mT 192.168.1.1:1-1024"
+echo ""
+echo "  To add other users:"
+echo "    sudo dseditgroup -o edit -a USERNAME -t user ${BPF_GROUP}"
+echo ""
+echo "  To uninstall:"
+echo "    sudo /usr/local/bin/uninstall-chmodbpf.sh"
+echo "    sudo rm -f /usr/local/bin/unicornscan /usr/local/bin/us"
+echo "    sudo rm -f /usr/local/bin/fantaip /usr/local/bin/unibrow"
+echo "    sudo rm -rf /usr/local/lib/unicornscan"
+echo "    sudo rm -rf /usr/local/etc/unicornscan"
+echo "    sudo rm -rf /usr/local/libexec/unicornscan"
+echo "    sudo rm -rf /usr/local/share/unicornscan"
+echo "=========================================================="
+echo ""
+
+exit 0

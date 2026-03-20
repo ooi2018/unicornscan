@@ -29,6 +29,7 @@
  * 1. Explicit path from configuration
  * 2. IP2LOCATION_DATABASE environment variable
  * 3. Standard system paths: /usr/share/IP2Location, /var/lib/IP2Location
+ * 4. macOS Homebrew paths: /opt/homebrew/share/GeoIP, /opt/homebrew/share/IP2Location
  *
  * Reference: https://www.ip2location.com/development-libraries/ip2location/c
  */
@@ -81,6 +82,9 @@ static const char *search_paths[] = {
 	"/opt/IP2Location",
 	"/usr/share/GeoIP",
 	"/var/lib/GeoIP",
+	"/opt/homebrew/share/GeoIP",	/* macOS Apple Silicon Homebrew */
+	"/opt/homebrew/var/GeoIP",	/* macOS Homebrew alternative */
+	"/opt/homebrew/share/IP2Location",	/* macOS Apple Silicon Homebrew */
 	NULL
 };
 

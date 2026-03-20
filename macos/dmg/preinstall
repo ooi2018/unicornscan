@@ -1,0 +1,81 @@
+#!/bin/sh
+#
+# preinstall — macOS installer preflight check for unicornscan
+#
+# Verifies that the target system meets minimum requirements before
+# allowing the package to install.  If any check fails, the installer
+# will present an error dialog and abort.
+#
+# This script is executed by the macOS Installer framework as root.
+# Exit 0 = proceed, non-zero = abort installation.
+#
+
+set -e
+
+SCRIPT_NAME="$(basename "$0")"
+MIN_MACOS_MAJOR=13          # Ventura
+MIN_MACOS_NAME="macOS 13 (Ventura)"
+REQUIRED_ARCH="arm64"
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+log_info() {
+    logger -t "unicornscan-preinstall" "$1" 2>/dev/null || true
+    echo "${SCRIPT_NAME}: $1"
+}
+
+log_error() {
+    logger -p user.err -t "unicornscan-preinstall" "$1" 2>/dev/null || true
+    echo "${SCRIPT_NAME}: ERROR: $1" >&2
+}
+
+# ---------------------------------------------------------------------------
+# Check: macOS version >= 13 (Ventura)
+# ---------------------------------------------------------------------------
+# sw_vers -productVersion returns a string like "14.3.1" or "13.0".
+# We extract the major version and compare numerically.
+
+MACOS_VERSION="$(sw_vers -productVersion 2>/dev/null || echo "0.0")"
+MACOS_MAJOR="$(echo "${MACOS_VERSION}" | cut -d. -f1)"
+
+if [ -z "${MACOS_MAJOR}" ] || [ "${MACOS_MAJOR}" = "0" ]; then
+    log_error "Could not determine macOS version."
+    log_error "sw_vers returned: ${MACOS_VERSION}"
+    exit 1
+fi
+
+# Shell arithmetic comparison — both values are plain integers.
+if [ "${MACOS_MAJOR}" -lt "${MIN_MACOS_MAJOR}" ]; then
+    log_error "macOS version ${MACOS_VERSION} is not supported."
+    log_error "Unicornscan requires ${MIN_MACOS_NAME} or later."
+    log_error "Please upgrade your operating system before installing."
+    exit 1
+fi
+
+log_info "macOS version check passed: ${MACOS_VERSION} (>= ${MIN_MACOS_MAJOR})"
+
+# ---------------------------------------------------------------------------
+# Check: architecture is arm64 (Apple Silicon)
+# ---------------------------------------------------------------------------
+# uname -m returns "arm64" on Apple Silicon, "x86_64" on Intel.
+# This package is built specifically for arm64.
+
+CURRENT_ARCH="$(uname -m 2>/dev/null || echo "unknown")"
+
+if [ "${CURRENT_ARCH}" != "${REQUIRED_ARCH}" ]; then
+    log_error "Unsupported architecture: ${CURRENT_ARCH}"
+    log_error "This package requires Apple Silicon (${REQUIRED_ARCH})."
+    log_error "If you are running on Intel hardware, please build from source."
+    exit 1
+fi
+
+log_info "Architecture check passed: ${CURRENT_ARCH}"
+
+# ---------------------------------------------------------------------------
+# All checks passed
+# ---------------------------------------------------------------------------
+
+log_info "All preflight checks passed.  Proceeding with installation."
+exit 0

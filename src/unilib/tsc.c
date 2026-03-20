@@ -137,6 +137,55 @@ inline tsc_t get_tsc(void) {
 /* #endif */
 #endif
 
+#elif defined(__aarch64__) || defined(__arm64__)
+
+/*
+ * ARM64 high-resolution counter.
+ *
+ * On ARM64, the equivalent of x86 rdtsc is the generic timer counter
+ * register CNTVCT_EL0 (Counter-timer Virtual Count register). This is
+ * a 64-bit monotonically increasing counter clocked by CNTFRQ_EL0.
+ *
+ * On macOS/Apple Silicon, CNTVCT_EL0 is accessible from userspace
+ * (EL0) and provides nanosecond-class resolution. The counter runs
+ * at 24 MHz on Apple M-series chips (41.67 ns per tick), which is
+ * more than sufficient for packet rate control.
+ *
+ * We also provide a mach_absolute_time() fallback for environments
+ * where inline assembly is not available, but the mrs instruction
+ * is preferred because mach_absolute_time() adds function call
+ * overhead on each invocation.
+ */
+
+#define tsc_t uint64_t
+
+int tsc_supported(void) {
+	/* XXX check cpu at runtime */
+	return 1;
+}
+
+static inline tsc_t get_tsc(void) {
+	uint64_t val;
+
+	/*
+	 * Read CNTVCT_EL0 — the virtual counter.  This is the same
+	 * register that mach_absolute_time() reads on Apple Silicon,
+	 * but without the function call overhead.
+	 *
+	 * isb ensures the counter read is not speculated past prior
+	 * instructions (equivalent to the 'pause; nop' before rdtsc
+	 * on x86).
+	 */
+	asm volatile(
+		"isb\n"
+		"mrs %0, cntvct_el0"
+		: "=r" (val)
+		:: "memory"
+	);
+
+	return val;
+}
+
 #else
 
 #define tsc_t uint32_t /* shrug */
