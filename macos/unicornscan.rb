@@ -20,6 +20,12 @@ class Unicornscan < Formula
   license "GPL-2.0-or-later"
   head "https://github.com/robertelee78/unicornscan.git", branch: "main"
 
+  # Prevent Homebrew from stripping .la files in the modules directory.
+  # unicornscan's module loader (SHLIB_EXT=".la") uses .la files to discover
+  # loadable modules. Without them, -epgsqldb, -eosdetect, and all payload
+  # modules silently fail to load.
+  skip_clean "lib/unicornscan/modules"
+
   depends_on "autoconf" => :build
   depends_on "automake" => :build
   depends_on "bison" => :build
