@@ -204,7 +204,12 @@ class Unicornscan < Formula
 
       Then log out and log back in for group membership to take effect.
 
-      To start the Alicorn web UI (requires Docker Desktop):
+      To start the Alicorn web UI, you need Docker:
+
+        brew install docker docker-compose colima
+        colima start
+
+      Then launch Alicorn:
 
         unicornscan-alicorn start
         open http://localhost:31337

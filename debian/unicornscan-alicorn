@@ -163,7 +163,15 @@ add_user_to_group() {
 docker_install_hint() {
     case "$PLATFORM" in
         Darwin)
-            echo "Install Docker Desktop from: https://www.docker.com/products/docker-desktop/"
+            echo ""
+            echo "  Option 1 - Colima (lightweight, CLI-only):"
+            echo "    brew install docker docker-compose colima"
+            echo "    colima start"
+            echo ""
+            echo "  Option 2 - Docker Desktop (GUI):"
+            echo "    brew install --cask docker"
+            echo ""
+            echo "  After installing, run this command again."
             ;;
         *)
             echo "  sudo apt install docker.io docker-compose-v2"
@@ -175,8 +183,9 @@ docker_install_hint() {
 compose_install_hint() {
     case "$PLATFORM" in
         Darwin)
-            echo "Docker Compose is included with Docker Desktop."
-            echo "Install Docker Desktop from: https://www.docker.com/products/docker-desktop/"
+            echo "Docker Compose is included with Docker and Colima."
+            echo ""
+            echo "  brew install docker-compose"
             ;;
         *)
             echo "Install with: sudo apt install docker-compose-v2"
@@ -188,7 +197,11 @@ compose_install_hint() {
 docker_group_hint() {
     case "$PLATFORM" in
         Darwin)
-            echo "On macOS, ensure Docker Desktop is running."
+            echo ""
+            echo "  If using Colima:  colima start"
+            echo "  If using Docker Desktop:  open -a Docker"
+            echo ""
+            echo "  Wait for the Docker daemon to start, then try again."
             ;;
         *)
             echo "Try: sudo systemctl start docker"
