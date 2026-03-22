@@ -1,11 +1,11 @@
-# PRD: macOS Port Hardening (v0.5.1)
+# PRD: macOS Port Hardening (v0.4.52)
 
 **Version:** 1.0
 **Date:** 2026-03-20
 **Status:** Draft
 **Author:** CFA Swarm (Agents #1-#7)
-**Predecessor:** PRD-macos-support.md (v0.5.0)
-**Target Release:** v0.5.1
+**Predecessor:** PRD-macos-support.md (v0.4.52)
+**Target Release:** v0.4.52
 
 ---
 
@@ -13,11 +13,11 @@
 
 ### 1.1 Purpose
 
-The v0.5.0 release delivered macOS Apple Silicon as a first-class platform with 19 of 20 stories completed (95%). This PRD addresses the items that were deferred, discovered as limitations, or identified as needing hardening during the v0.5.0 implementation. It is the authoritative plan for v0.5.1.
+The v0.4.52 release delivered macOS Apple Silicon as a first-class platform with 19 of 20 stories completed (95%). This PRD addresses the items that were deferred, discovered as limitations, or identified as needing hardening during the v0.4.52 implementation. It is the authoritative plan for v0.4.52.
 
-### 1.2 What v0.5.0 Deferred or Left Incomplete
+### 1.2 What v0.4.52 Deferred or Left Incomplete
 
-| Item | v0.5.0 Status | Impact |
+| Item | v0.4.52 Status | Impact |
 |------|---------------|--------|
 | macOS sandbox profile (`sandbox_init()`) | Deferred -- API deprecated, rejects custom profiles | Listener process has no process-level sandboxing on macOS |
 | libdnet `/dev/bpf0` hardcoding | Documented limitation, workaround applied | Only one libdnet-using process at a time; fragile under concurrent BPF consumers |
@@ -57,8 +57,8 @@ Harden the macOS port so that:
 
 - Windows / WSL support
 - Intel Mac (x86_64-apple-darwin) support
-- macOS code signing and notarization (Phase 2, per v0.5.0 PRD)
-- kqueue performance optimization (already implemented in v0.5.0)
+- macOS code signing and notarization (Phase 2, per v0.4.52 PRD)
+- kqueue performance optimization (already implemented in v0.4.52)
 - Alicorn .app launcher enhancements
 - New scan modes or protocol support
 
@@ -70,13 +70,13 @@ Harden the macOS port so that:
 
 ### 3.1 Background
 
-The v0.5.0 PRD (Story 3.2) discovered that `sandbox_init(SANDBOX_NAMED)` is deprecated since macOS 10.8 and rejects custom `.sb` profile text on modern macOS (10.15+). The current implementation in `src/unilib/arch.c:197-215` logs a message and returns 0, meaning no sandbox is applied.
+The v0.4.52 PRD (Story 3.2) discovered that `sandbox_init(SANDBOX_NAMED)` is deprecated since macOS 10.8 and rejects custom `.sb` profile text on modern macOS (10.15+). The current implementation in `src/unilib/arch.c:197-215` logs a message and returns 0, meaning no sandbox is applied.
 
 The `.sb` profile at `macos/unicornscan-listener.sb` (188 lines) is well-crafted with deny-default policy, network/sysctl/mach-lookup allowances, and restricted filesystem access. It is ready for use but has no delivery mechanism.
 
 ### 3.2 Recommended Approach: `sandbox_compile_file()` + `sandbox_apply()` SPI
 
-The deprecated `sandbox_init()` was a thin wrapper around private SPI functions in `libsandbox.1.dylib`. These underlying functions remain functional and are used by all Apple system daemons. They were **tested and confirmed working on macOS 26.3.1** during v0.5.0 research.
+The deprecated `sandbox_init()` was a thin wrapper around private SPI functions in `libsandbox.1.dylib`. These underlying functions remain functional and are used by all Apple system daemons. They were **tested and confirmed working on macOS 26.3.1** during v0.4.52 research.
 
 The approach uses `dlopen`/`dlsym` to load the SPI at runtime, avoiding a hard ABI dependency. If the symbols are unavailable on a future macOS version, the code falls through gracefully (same behavior as today).
 
@@ -179,7 +179,7 @@ static int apply_sandbox(void) {
 ```
 
 **Acceptance Criteria:**
-- [x] `sandbox_compile_file` + `sandbox_apply` confirmed working on macOS 26.3.1 (tested during v0.5.0 research)
+- [x] `sandbox_compile_file` + `sandbox_apply` confirmed working on macOS 26.3.1 (tested during v0.4.52 research)
 - [ ] `configure.ac` sets `SANDBOX_PROFILE` to `${datadir}/unicornscan/unicornscan-listener.sb`
 - [ ] `dlopen`/`dlsym` gracefully degrades if `libsandbox.1.dylib` is missing or symbols removed
 - [ ] Listener process runs inside sandbox on macOS
@@ -219,7 +219,7 @@ The SPI symbols are present in SDK TBD stubs from macOS 10.6 through 26.2. Valid
 **Priority:** P3 (research only)
 **Type:** Spike
 
-Investigate whether code-signed binaries with App Sandbox entitlements can provide equivalent isolation without `sandbox-exec`. This requires code signing infrastructure (deferred to Phase 2 in v0.5.0 PRD).
+Investigate whether code-signed binaries with App Sandbox entitlements can provide equivalent isolation without `sandbox-exec`. This requires code signing infrastructure (deferred to Phase 2 in v0.4.52 PRD).
 
 **Acceptance Criteria:**
 - [ ] Document whether App Sandbox entitlements can restrict a command-line tool
@@ -234,9 +234,9 @@ Investigate whether code-signed binaries with App Sandbox entitlements can provi
 
 ### 4.1 Background
 
-Homebrew's libdnet 1.18.2 hardcodes `/dev/bpf0` in its `eth_open()` implementation (confirmed via `strings libdnet.1.dylib` during v0.5.0). If any other process holds `/dev/bpf0`, `eth_open()` fails with `EBUSY`.
+Homebrew's libdnet 1.18.2 hardcodes `/dev/bpf0` in its `eth_open()` implementation (confirmed via `strings libdnet.1.dylib` during v0.4.52). If any other process holds `/dev/bpf0`, `eth_open()` fails with `EBUSY`.
 
-The v0.5.0 workaround reordered `eth_open()` before `pcap_open_live()` in `src/tools/fantaip.c` so libdnet grabs `/dev/bpf0` first. But in `src/scan_progs/send_packet.c:1268-1274`, `eth_open()` is called via `open_link(SOCK_LL, ...)` and may fail if `/dev/bpf0` is already held by the listener's pcap session.
+The v0.4.52 workaround reordered `eth_open()` before `pcap_open_live()` in `src/tools/fantaip.c` so libdnet grabs `/dev/bpf0` first. But in `src/scan_progs/send_packet.c:1268-1274`, `eth_open()` is called via `open_link(SOCK_LL, ...)` and may fail if `/dev/bpf0` is already held by the listener's pcap session.
 
 ### 4.2 Option Analysis
 
@@ -492,7 +492,7 @@ Register an `atexit()` handler early in `main()` that calls `chld_killall()`. Th
 
 ### 6.1 Background
 
-The v0.5.0 port introduced ChmodBPF for non-root BPF access, but the privilege model has multiple layers that interact:
+The v0.4.52 port introduced ChmodBPF for non-root BPF access, but the privilege model has multiple layers that interact:
 
 1. **BPF device access** (`/dev/bpf*`): Requires ChmodBPF group or root
 2. **Privilege drop** (`arch.c:218-355`): `drop_privs()` uses `setreuid()`/`setregid()` to drop to `NOPRIV_USER`, but only when running as root (line 236)
@@ -612,7 +612,7 @@ The Homebrew formula (`macos/unicornscan.rb`) has `sha256 "PLACEHOLDER"` (line 1
 **File:** `macos/unicornscan.rb`
 
 **Tasks:**
-1. Generate correct sha256 from the v0.5.0 release tarball
+1. Generate correct sha256 from the v0.4.52 release tarball
 2. Add `test` block that validates scanner functionality
 3. Add `caveats` block explaining ChmodBPF setup
 4. Run `brew audit --strict unicornscan` and fix all warnings
@@ -654,7 +654,7 @@ end
 - [ ] `brew test unicornscan` passes
 - [ ] `brew audit --strict unicornscan` produces zero errors
 - [ ] `brew uninstall unicornscan` cleanly removes all files
-- [ ] sha256 matches the v0.5.1 release tarball
+- [ ] sha256 matches the v0.4.52 release tarball
 
 #### Story 7.5.2: Homebrew Bottle Generation
 
@@ -677,7 +677,7 @@ The release workflow should produce a Homebrew bottle (pre-compiled binary) for 
 
 | Test | Command | Expected |
 |------|---------|----------|
-| Build DMG | `./build-dmg.sh` | Produces `unicornscan-0.5.1-arm64.dmg` |
+| Build DMG | `./build-dmg.sh` | Produces `unicornscan-0.4.52-arm64.dmg` |
 | Mount | `hdiutil attach *.dmg` | Mounts without error |
 | Install | Run preinstall, copy files, run postinstall | All files in correct locations per DMG path reference |
 | Scanner runs | `/usr/local/bin/unicornscan -V` | Prints version |
@@ -687,7 +687,7 @@ The release workflow should produce a Homebrew bottle (pre-compiled binary) for 
 
 **Acceptance Criteria:**
 - [ ] DMG builds successfully from release CI
-- [ ] All files installed to correct paths (per v0.5.0 PRD Appendix C)
+- [ ] All files installed to correct paths (per v0.4.52 PRD Appendix C)
 - [ ] Scanner functional after DMG install on clean macOS
 - [ ] Uninstall removes all files including LaunchDaemon
 
@@ -719,11 +719,11 @@ sudo make install
 
 ## 8. Epic 6: Scan Mode Validation and Security
 
-**Goal:** Validate all scan modes on macOS (especially ICMP which was not tested in v0.5.0) and perform a focused security audit of macOS-specific code.
+**Goal:** Validate all scan modes on macOS (especially ICMP which was not tested in v0.4.52) and perform a focused security audit of macOS-specific code.
 
 ### 8.1 Background
 
-The v0.5.0 PRD marked ICMP scan as "not yet tested" (Section 9.1). The `MODE_ICMPSCAN` code path exists in `src/scan_progs/workunits.c:500-502` with magic numbers `ICMP_SEND_MAGIC` (0x4a4b4c4d) and `ICMP_RECV_MAGIC` (0xa4b4c4d4), and the packet structures are defined in `src/scan_progs/packets.h:103-132`. The security audit checkbox (Section 9.2) is also unchecked.
+The v0.4.52 PRD marked ICMP scan as "not yet tested" (Section 9.1). The `MODE_ICMPSCAN` code path exists in `src/scan_progs/workunits.c:500-502` with magic numbers `ICMP_SEND_MAGIC` (0x4a4b4c4d) and `ICMP_RECV_MAGIC` (0xa4b4c4d4), and the packet structures are defined in `src/scan_progs/packets.h:103-132`. The security audit checkbox (Section 9.2) is also unchecked.
 
 #### Story 8.6.1: ICMP Scan Validation on macOS
 
@@ -788,7 +788,7 @@ Review all code behind `#ifdef __APPLE__`, `#ifdef HAVE_SANDBOX_INIT`, `#ifdef A
 **Priority:** P2
 **File:** `src/scan_progs/recv_packet.c:284-289`
 
-The v0.5.0 fix made `pcap_setdirection(PCAP_D_IN)` failure non-fatal. Validate that scan results are correct without direction filtering (i.e., the listener does not count its own outbound packets as results).
+The v0.4.52 fix made `pcap_setdirection(PCAP_D_IN)` failure non-fatal. Validate that scan results are correct without direction filtering (i.e., the listener does not count its own outbound packets as results).
 
 **Acceptance Criteria:**
 - [ ] TCP SYN scan against known-state target produces identical results with and without `pcap_setdirection`
@@ -879,7 +879,7 @@ The v0.5.0 fix made `pcap_setdirection(PCAP_D_IN)` failure non-fatal. Validate t
 
 ### 10.3 Measurable Outcomes
 
-| Metric | v0.5.0 Baseline | v0.5.1 Target |
+| Metric | v0.4.52 Baseline | v0.4.52 Target |
 |--------|-----------------|---------------|
 | Scan modes validated on macOS | 3 of 4 (75%) | 4 of 4 (100%) |
 | Process sandboxing | None | Listener sandboxed |
@@ -906,7 +906,7 @@ The v0.5.0 fix made `pcap_setdirection(PCAP_D_IN)` failure non-fatal. Validate t
 
 ## 12. Appendix
 
-### A. Files Modified in v0.5.1
+### A. Files Modified in v0.4.52
 
 | File | Epic | Change |
 |------|------|--------|
@@ -924,7 +924,7 @@ The v0.5.0 fix made `pcap_setdirection(PCAP_D_IN)` failure non-fatal. Validate t
 | `.github/workflows/release.yml` | E5 | Bottle generation |
 | `macos/dmg/build-dmg.sh` | E5 | Validation fixes |
 
-### B. New Files in v0.5.1
+### B. New Files in v0.4.52
 
 | File | Epic | Purpose |
 |------|------|---------|

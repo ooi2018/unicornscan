@@ -1,7 +1,7 @@
 %global debug_package %{nil}
 
 Name:           unicornscan
-Version:        0.5.0
+Version:        0.4.52
 Release:        1%{?dist}
 Summary:        Asynchronous stateless TCP/UDP network scanner
 
@@ -191,6 +191,16 @@ echo ""
 %dir %{_sharedstatedir}/unicornscan/alicorn
 
 %changelog
+* Sat Mar 21 2026 Robert E. Lee <robert@unicornscan.org> - 0.4.52-1
+- macOS Apple Silicon as first-class platform
+- kqueue-based event loop for macOS/BSD
+- Homebrew formula and DMG installer
+- Fix fantaip BPF device contention on macOS
+- Fix pcap timeout causing BIOCSRTIMEOUT on macOS BPF
+- Fix sandbox_init using deprecated API on modern macOS
+- WiFi interface support in fantaip
+- Version renumber from premature 0.5.0 to 0.4.52
+
 * Sun Jan 26 2026 Robert E. Lee <robert@unicornscan.org> - 0.4.51-1
 - Fix ARP mode packet estimation showing 0 packets
 - Fix runtime version and bug report URL in packageinfo.h

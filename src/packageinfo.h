@@ -1,6 +1,6 @@
 #ifndef VERSION
 
-#define VERSION "0.5.0"
+#define VERSION "0.4.52"
 #define BUGURL "https://github.com/robertelee78/unicornscan/issues"
 
 #ifdef WITH_SELINUX

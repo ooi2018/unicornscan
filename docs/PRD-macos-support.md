@@ -3,7 +3,7 @@
 **Version:** 1.1
 **Date:** 2026-03-20
 **Author:** John (PM) with full BMAD team analysis
-**Target Release:** v0.5.0
+**Target Release:** v0.4.52
 **Status:** Implemented (see Section 11 for completion status)
 
 ---
@@ -12,7 +12,7 @@
 
 ### 1.1 Problem Statement
 
-Unicornscan is an asynchronous, stateless network reconnaissance scanner that was originally built for Linux (circa 2004) and recently modernized (2025-2026). As of v0.5.0, macOS Apple Silicon is a first-class supported platform with full scanning parity, native privilege management via ChmodBPF, kqueue event loop, Homebrew formula, and DMG installer.
+Unicornscan is an asynchronous, stateless network reconnaissance scanner that was originally built for Linux (circa 2004) and recently modernized (2025-2026). As of v0.4.52, macOS Apple Silicon is a first-class supported platform with full scanning parity, native privilege management via ChmodBPF, kqueue event loop, Homebrew formula, and DMG installer.
 
 This PRD documents the requirements, technical decisions, and implementation status of the macOS port. It serves as the authoritative reference for what was built, what was deferred, and lessons learned during the port.
 
@@ -22,7 +22,7 @@ Make macOS a **first-class supported platform** with full scanning parity, nativ
 
 ### 1.3 Target Release
 
-**v0.5.0** — a minor version bump signaling new platform support.
+**v0.4.52** — a minor version bump signaling new platform support.
 
 ---
 
@@ -412,7 +412,7 @@ A lightweight macOS application bundle that:
 class Unicornscan < Formula
   desc "Asynchronous stateless TCP/UDP network scanner"
   homepage "https://github.com/robertelee78/unicornscan"
-  url "https://github.com/robertelee78/unicornscan/archive/refs/tags/v0.5.0.tar.gz"
+  url "https://github.com/robertelee78/unicornscan/archive/refs/tags/v0.4.52.tar.gz"
   license "GPL-2.0-or-later"
 
   depends_on "libpcap"
@@ -736,7 +736,7 @@ brew install postgresql@16 libmaxminddb
 
 ## 11. Implementation Completion Status
 
-**As of v0.5.0 (2026-03-20)**
+**As of v0.4.52 (2026-03-20)**
 
 ### Story-Level Status
 
