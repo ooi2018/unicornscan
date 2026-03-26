@@ -735,16 +735,18 @@ jobs:
           chmod +x macos/dmg/build-dmg.sh
 
           # Build the DMG, passing signing identity if available
-          SIGN_ARGS=""
           if [ -n "$SIGN_IDENTITY" ]; then
-            SIGN_ARGS="--sign $SIGN_IDENTITY"
+            ./macos/dmg/build-dmg.sh \
+              --version "$VERSION" \
+              --destdir "$STAGING" \
+              --output-dir "$(pwd)/artifacts" \
+              --sign "$SIGN_IDENTITY"
+          else
+            ./macos/dmg/build-dmg.sh \
+              --version "$VERSION" \
+              --destdir "$STAGING" \
+              --output-dir "$(pwd)/artifacts"
           fi
-
-          ./macos/dmg/build-dmg.sh \
-            --version "$VERSION" \
-            --destdir "$STAGING" \
-            --output-dir "$(pwd)/artifacts" \
-            $SIGN_ARGS
 
           ls -la artifacts/*.dmg
 
