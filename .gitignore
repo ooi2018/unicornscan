@@ -59,6 +59,22 @@ configure~
 # Release packages (built locally)
 releases/
 
+# Local development tooling output
+_bmad/
+_bmad-output/
+
+# Release artifacts (built locally, never committed)
+packages/
+*.dmg
+
+# Binary database files (downloaded at runtime)
+data/geoip/
+*.mmdb
+
+# Build-generated library directories (cleaned by make clean)
+libs/fake/
+libs/libltdl/
+
 # Claude Flow generated files
 .claude/settings.local.json
 .mcp.json
