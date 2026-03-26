@@ -4,12 +4,13 @@
 
 Unicornscan is an asynchronous stateless network stimulus delivery/response recording tool designed for scalable, high-speed network reconnaissance. This guide describes how to install unicornscan from pre-built packages (`.deb` or `.rpm`) on Linux distributions.
 
-**Supported distributions:**
+**Supported platforms:**
 
 - Debian 11+ (Bullseye and later)
 - Ubuntu 22.04+ (Jammy and later)
 - Fedora 39+
 - RHEL/Rocky/AlmaLinux 9+
+- macOS (via Homebrew)
 
 If you prefer to compile from source, see the [INSTALL-source.md](INSTALL-source.md) file.
 
@@ -23,10 +24,11 @@ Download the appropriate package from the GitHub Releases page:
 
 Then install with a single command:
 
-| Distribution   | Command                                              |
+| Platform       | Command                                              |
 |----------------|------------------------------------------------------|
 | Debian/Ubuntu  | `sudo apt install ./unicornscan_VERSION_amd64.deb`   |
 | Fedora/RHEL    | `sudo dnf install ./unicornscan-VERSION.x86_64.rpm`  |
+| macOS          | `brew tap robertelee78/unicornscan && brew install unicornscan` |
 
 That's it! The package manager handles all dependencies, and Linux capabilities are set automatically so you can scan without root privileges.
 
@@ -91,7 +93,30 @@ That's it! The package manager handles all dependencies, and Linux capabilities 
    unicornscan -h
    ```
 
-### 1.3.3 Verifying Non-Root Scanning
+### 1.3.3 macOS (Homebrew)
+
+1. Add the unicornscan tap and install:
+
+   ```bash
+   brew tap robertelee78/unicornscan
+   brew install unicornscan
+   ```
+
+2. Verify the installation:
+
+   ```bash
+   unicornscan -V
+   unicornscan -h
+   ```
+
+> **Note:** macOS requires BPF device access for raw packet capture. Install
+> ChmodBPF (bundled with Wireshark) or run with `sudo`:
+>
+> ```bash
+> brew install --cask wireshark   # installs ChmodBPF as a side-effect
+> ```
+
+### 1.3.4 Verifying Non-Root Scanning
 
 The package automatically sets Linux capabilities on the binaries, allowing you to scan without root privileges. Test this with:
 
