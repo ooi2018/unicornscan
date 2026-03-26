@@ -148,12 +148,9 @@ fi
 CONFDIR="/usr/local/etc/unicornscan"
 if [ -d "${CONFDIR}" ]; then
     chmod 644 "${CONFDIR}"/*.conf "${CONFDIR}"/*.txt 2>/dev/null || true
-    # modules.conf needs user write access so unicornscan-alicorn can sync
-    # the database password into it at start time.  The pkg payload installs
-    # it as root-owned, but the alicorn script runs as the user.
-    if [ -n "${REAL_USER}" ] && [ "${REAL_USER}" != "root" ]; then
-        chown "${REAL_USER}" "${CONFDIR}/modules.conf" 2>/dev/null || true
-    fi
+    # modules.conf also needs user write access so unicornscan-alicorn can
+    # sync the database password into it.  The actual chown happens in
+    # Step 6 AFTER the sed operations (sed -i creates a new root-owned file).
     log_info "Config file permissions set to 644."
 fi
 
@@ -183,6 +180,21 @@ CONFDIR="/usr/local/etc/unicornscan"
 
 if [ ! -f "${ALICORN_PWFILE}" ]; then
     mkdir -p "${ALICORN_VAR}"
+
+    # Remove orphan Docker volume from a prior install.  The volume's
+    # PostgreSQL data has the OLD password baked in (set during initdb);
+    # PostgreSQL ignores POSTGRES_PASSWORD on subsequent starts.  Since
+    # we have no .db_password file, we cannot recover the old password,
+    # so the volume must go.
+    if command -v docker >/dev/null 2>&1; then
+        if docker volume inspect alicorn_postgres_data >/dev/null 2>&1; then
+            log_info "Removing orphan database volume (password unrecoverable)..."
+            # Stop any container using the volume first
+            docker stop alicorn-postgres 2>/dev/null || true
+            docker rm alicorn-postgres 2>/dev/null || true
+            docker volume rm alicorn_postgres_data 2>/dev/null || true
+        fi
+    fi
 
     DB_PASSWORD="$(LC_ALL=C tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 32)"
 
@@ -216,6 +228,12 @@ else
     else
         log_info "Database password already exists — skipping generation."
     fi
+fi
+
+# Restore user ownership after sed -i (which creates a new root-owned file).
+# unicornscan-alicorn's sync_modules_conf() needs write access.
+if [ -n "${REAL_USER}" ] && [ "${REAL_USER}" != "root" ]; then
+    chown "${REAL_USER}" "${CONFDIR}/modules.conf" 2>/dev/null || true
 fi
 
 # ---------------------------------------------------------------------------

@@ -1832,6 +1832,10 @@ int send_output(const void *p) {
 
 	d_u.p=p;
 
+	if (pgsql_disable || pgconn == NULL) {
+		return -1;
+	}
+
 	if (p == NULL) {
 		return -1;
 	}
