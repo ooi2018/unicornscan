@@ -362,6 +362,17 @@ int main(int argc, char ** argv) {
 		exit(1);
 	}
 
+	/* Daemonize BEFORE opening any BPF/pcap handles.  The double-fork
+	 * must happen while the only open FDs are 0,1,2 (and sudo's pipes).
+	 * If we fork after opening BPF devices, the inherited FDs keep sudo
+	 * waiting on macOS even after the intermediate process exits. */
+	if (detach) {
+		VRB(1, "going into background");
+		s->verbose=0;
+		s->debugmask=0;
+		do_daemon();
+	}
+
 	/*
 	 * Open the libdnet ethernet handle BEFORE pcap_open_live.
 	 *
@@ -535,15 +546,6 @@ int main(int argc, char ** argv) {
 		eth_close(bob.e);
 		pcap_close(pdev);
 		exit(0);
-	}
-
-	if (detach) {
-		VRB(1, "going into background");
-
-		s->verbose=0;
-		s->debugmask=0;
-
-		do_daemon();
 	}
 
 	bob.saddr=bob.oaddr;
@@ -794,9 +796,10 @@ void do_daemon(void) {
 
 	/* Grandchild: fully detached daemon */
 	if (chdir("/") < 0) {
-		ERR("chdir failed: %s", strerror(errno));
+		/* chdir failed, not fatal for daemon operation */
 	}
 	umask(077);
+
 	if (freopen("/dev/null", "r", stdin) == NULL ||
 	    freopen("/dev/null", "w", stdout) == NULL ||
 	    freopen("/dev/null", "w", stderr) == NULL) {
