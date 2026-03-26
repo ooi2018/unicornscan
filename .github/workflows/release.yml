@@ -579,8 +579,6 @@ jobs:
             LDFLAGS="-L${LIBTOOL_PREFIX}/lib -L${LIBDNET_PREFIX}/lib -L${LIBPCAP_PREFIX}/lib -L${PG_PREFIX}/lib -L${MAXMIND_PREFIX}/lib" \
             CPPFLAGS="-I${LIBTOOL_PREFIX}/include -I${LIBDNET_PREFIX}/include -I${LIBPCAP_PREFIX}/include -I${PG_PREFIX}/include -I${MAXMIND_PREFIX}/include" \
             --prefix=/usr/local \
-            --sysconfdir=/etc \
-            --localstatedir=/var \
             --with-pgsql="${PG_PREFIX}" \
             --with-libdnet="${LIBDNET_PREFIX}"
 

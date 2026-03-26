@@ -208,7 +208,7 @@ fi
 GEOIP_SCRIPT="/usr/local/bin/unicornscan-geoip-update"
 if [ -x "${GEOIP_SCRIPT}" ]; then
     log_info "Downloading free GeoIP databases (background)..."
-    "${GEOIP_SCRIPT}" >/dev/null 2>&1 &
+    "${GEOIP_SCRIPT}" &
     GEOIP_PID=$!
     # Wait up to 30 seconds for the download to complete.
     # If it takes longer, let it finish in the background.
@@ -220,11 +220,15 @@ if [ -x "${GEOIP_SCRIPT}" ]; then
     if kill -0 "${GEOIP_PID}" 2>/dev/null; then
         log_info "GeoIP download still running in background (PID ${GEOIP_PID})."
     else
-        wait "${GEOIP_PID}" 2>/dev/null
-        if [ $? -eq 0 ]; then
+        # Capture exit code without triggering set -e (wait returns the
+        # background process's exit code, which may be non-zero if GeoIP
+        # config update was skipped — that's not a reason to fail the install).
+        GEOIP_RC=0
+        wait "${GEOIP_PID}" 2>/dev/null || GEOIP_RC=$?
+        if [ "${GEOIP_RC}" -eq 0 ]; then
             log_info "GeoIP databases downloaded successfully."
         else
-            log_warn "GeoIP download failed.  Run manually: sudo unicornscan-geoip-update"
+            log_warn "GeoIP download exited with code ${GEOIP_RC}.  Run manually: sudo unicornscan-geoip-update"
         fi
     fi
 else

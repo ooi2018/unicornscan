@@ -16,18 +16,21 @@ set -e
 
 # Detect platform and set GeoIP directory accordingly
 if [ "$(uname -s)" = "Darwin" ]; then
-    # macOS: use Homebrew prefix if available, otherwise /usr/local/share/GeoIP
+    # macOS: use Homebrew prefix if available, otherwise /usr/local
     if command -v brew &>/dev/null; then
-        GEOIP_DIR="$(brew --prefix)/share/GeoIP"
+        _prefix="$(brew --prefix)"
     else
-        GEOIP_DIR="/usr/local/share/GeoIP"
+        _prefix="/usr/local"
     fi
+    GEOIP_DIR="${_prefix}/share/GeoIP"
+    MODULES_CONF="${_prefix}/etc/unicornscan/modules.conf"
+    WEB_PASSWORD_FILE="${_prefix}/var/unicornscan/alicorn/.db_password"
 else
     # Linux and other platforms
     GEOIP_DIR="/usr/share/GeoIP"
+    MODULES_CONF="/etc/unicornscan/modules.conf"
+    WEB_PASSWORD_FILE="/var/lib/unicornscan/alicorn/.db_password"
 fi
-MODULES_CONF="/etc/unicornscan/modules.conf"
-WEB_PASSWORD_FILE="/var/lib/unicornscan/alicorn/.db_password"
 
 # Database definitions
 CITY_DB="dbip-city-lite.mmdb"
@@ -393,8 +396,10 @@ do_download() {
 
     # Update configuration files
     if [ -n "$city_path" ] || [ -n "$asn_path" ]; then
-        update_modules_conf "$city_path" "$asn_path"
-        update_postgres_config "$city_path" "$asn_path"
+        update_modules_conf "$city_path" "$asn_path" || \
+            echo "  (config update skipped — databases were still installed)"
+        update_postgres_config "$city_path" "$asn_path" || \
+            echo "  (postgres config update skipped)"
     fi
 
     # Summary
