@@ -164,21 +164,7 @@ AC_LINK_IFELSE([AC_LANG_PROGRAM([[
 ]])], [AC_MSG_RESULT(yes)
 AC_DEFINE([WITH_BACKTRACE], [1], [Define if backtrace is available])], [AC_MSG_RESULT(no)])
 
-bundled_ltdl="no"
-AC_MSG_CHECKING([whether to force bundled libltdl to be staticly linked into executables])
-AC_ARG_ENABLE(bundled-ltdl,
-[  --enable-bundled-ltdl   staticly link against bundled ltdl, not system wide version],
-[bundled_ltdl="yes"],
-[bundled_ltdl="no"])
-case "$bundled_ltdl" in
-yes)
-	AC_MSG_RESULT([yes])
-	NEED_AUX_LIBS="${NEED_AUX_LIBS} libltdl"
-	;;
-*)
-	AC_MSG_RESULT([no])
-	;;
-esac
+dnl bundled-ltdl option removed — system libltdl is now required
 
 AC_ARG_ENABLE(debug-support,
 [AS_HELP_STRING([--enable-debug-support], [enable possibly unsafe debugging functions])],
@@ -440,7 +426,6 @@ echo "GeoIP support (MaxMind):          $geoip_found"
 echo "GeoIP support (IP2Location):      $ip2location_found"
 echo "SELinux Support:                  $selinux"
 echo "Listen User: (non-selinux)        $listen_user"
-echo "libraries missing that will be built:  \`$NEED_AUX_LIBS'"
 echo "C options  = $U_COPTS"
 echo "C defines  = $U_CDEFS"
 echo "C include  = $U_CINCS"

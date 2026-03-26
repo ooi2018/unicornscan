@@ -161,10 +161,12 @@ if test $good = "no"; then
 	])
 fi
 if test $good = "no"; then
-	NEED_AUX_LIBS="${NEED_AUX_LIBS} libdnet"
-	DNETLIBS="-ldnet"
-	DNETCFLG=""
-	AC_MSG_RESULT(no, using supplied version)
+	AC_MSG_RESULT(no)
+	AC_MSG_ERROR([libdnet/libdumbnet not found. Install it:
+  Debian/Ubuntu: sudo apt install libdumbnet-dev
+  Fedora/RHEL:   sudo dnf install libdnet-devel
+  Arch Linux:    sudo pacman -S libdnet
+  macOS:         brew install libdnet])
 fi
 dnl Check for dumbnet.h vs dnet.h header
 AC_CHECK_HEADERS([dumbnet.h], [
@@ -282,21 +284,24 @@ AC_CHECK_LIB([pcap], [pcap_open_live],[
  AC_MSG_CHECKING([for pcap_setnonblock])
  AC_CHECK_LIB([pcap], [pcap_setnonblock], [AC_DEFINE([HAVE_PCAP_SET_NONBLOCK], [1], [Define if pcap_setnonblock is available])], [])
  AC_CHECK_LIB([pcap], [pcap_get_selectable_fd], [],
-[
-  AC_DEFINE([HAVE_PCAP_LIB_VERSION], [1], [Define if pcap_lib_version is available])
-  AC_DEFINE([HAVE_PCAP_SET_NONBLOCK], [1], [Define if pcap_setnonblock is available])
-  NEED_AUX_LIBS="${NEED_AUX_LIBS} pcap"
-]
- )
+[AC_MSG_ERROR([libpcap is too old (missing pcap_get_selectable_fd). Install libpcap >= 0.8:
+  Debian/Ubuntu: sudo apt install libpcap-dev
+  Fedora/RHEL:   sudo dnf install libpcap-devel
+  macOS:         brew install libpcap])])
 ],
-[NEED_AUX_LIBS="${NEED_AUX_LIBS} pcap"
-AC_DEFINE([HAVE_PCAP_LIB_VERSION], [1], [Define if pcap_lib_version is available])
-AC_DEFINE([HAVE_PCAP_SET_NONBLOCK], [1], [Define if pcap_setnonblock is available])])
+[AC_MSG_ERROR([libpcap not found. Install it:
+  Debian/Ubuntu: sudo apt install libpcap-dev
+  Fedora/RHEL:   sudo dnf install libpcap-devel
+  Arch Linux:    sudo pacman -S libpcap
+  macOS:         brew install libpcap])])
 ])
 
 AC_DEFUN([AC_UNI_LIBLTDL], [
 AC_MSG_CHECKING([for libltdl])
 AC_CHECK_LIB([ltdl], [lt_dlopen], [], [
-NEED_AUX_LIBS="${NEED_AUX_LIBS} libltdl"
-])
+AC_MSG_ERROR([libltdl not found. Install it:
+  Debian/Ubuntu: sudo apt install libltdl-dev
+  Fedora/RHEL:   sudo dnf install libtool-ltdl-devel
+  Arch Linux:    sudo pacman -S libtool
+  macOS:         brew install libtool])])
 ])
