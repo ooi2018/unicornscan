@@ -162,7 +162,7 @@ if test $good = "no"; then
 fi
 if test $good = "no"; then
 	NEED_AUX_LIBS="${NEED_AUX_LIBS} libdnet"
-	DNETLIBS=""
+	DNETLIBS="-ldnet"
 	DNETCFLG=""
 	AC_MSG_RESULT(no, using supplied version)
 fi
