@@ -206,7 +206,16 @@ ENVEOF
         log_info "Database password generated and modules.conf updated."
     fi
 else
-    log_info "Database password already exists — skipping generation."
+    # Reinstall/upgrade: password file exists but the pkg payload just
+    # overwrote modules.conf with the default (password=CHANGE_ME).
+    # Re-apply the existing password so -epgsqldb works immediately.
+    DB_PASSWORD="$(cat "${ALICORN_PWFILE}")"
+    if [ -n "${DB_PASSWORD}" ] && [ -f "${CONFDIR}/modules.conf" ]; then
+        sed -i '' "s/password=[^;[:space:]\"]*/password=${DB_PASSWORD}/" "${CONFDIR}/modules.conf"
+        log_info "Reinstall: re-applied existing database password to modules.conf."
+    else
+        log_info "Database password already exists — skipping generation."
+    fi
 fi
 
 # ---------------------------------------------------------------------------
