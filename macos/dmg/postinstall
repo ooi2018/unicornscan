@@ -255,7 +255,17 @@ fi
 # ---------------------------------------------------------------------------
 
 if [ "${DOCKER_AVAILABLE}" = "yes" ]; then
-    if ! docker info >/dev/null 2>&1; then
+    # Check Docker daemon as the real user — the Docker socket may only be
+    # accessible from the user's context (Colima, Docker Desktop).
+    DOCKER_CHECK="docker info >/dev/null 2>&1"
+    if [ -n "${REAL_USER}" ] && [ "${REAL_USER}" != "root" ]; then
+        DOCKER_RUNNING="no"
+        su - "${REAL_USER}" -c "${DOCKER_CHECK}" && DOCKER_RUNNING="yes"
+    else
+        docker info >/dev/null 2>&1 && DOCKER_RUNNING="yes" || DOCKER_RUNNING="no"
+    fi
+
+    if [ "${DOCKER_RUNNING}" = "no" ]; then
         log_info "Docker installed but daemon not running."
         if command -v colima >/dev/null 2>&1; then
             log_info "Starting Colima..."
@@ -265,11 +275,15 @@ if [ "${DOCKER_AVAILABLE}" = "yes" ]; then
                 colima start 2>&1 || true
             fi
         fi
-        # Re-check
-        if ! docker info >/dev/null 2>&1; then
+        # Re-check as user
+        if [ -n "${REAL_USER}" ] && [ "${REAL_USER}" != "root" ]; then
+            su - "${REAL_USER}" -c "${DOCKER_CHECK}" || DOCKER_AVAILABLE="no"
+        else
+            docker info >/dev/null 2>&1 || DOCKER_AVAILABLE="no"
+        fi
+        if [ "${DOCKER_AVAILABLE}" = "no" ]; then
             log_warn "Docker daemon still not running."
             log_warn "Start it manually, then run: unicornscan-alicorn start"
-            DOCKER_AVAILABLE="no"
         fi
     fi
 fi
