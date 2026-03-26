@@ -148,6 +148,12 @@ fi
 CONFDIR="/usr/local/etc/unicornscan"
 if [ -d "${CONFDIR}" ]; then
     chmod 644 "${CONFDIR}"/*.conf "${CONFDIR}"/*.txt 2>/dev/null || true
+    # modules.conf needs user write access so unicornscan-alicorn can sync
+    # the database password into it at start time.  The pkg payload installs
+    # it as root-owned, but the alicorn script runs as the user.
+    if [ -n "${REAL_USER}" ] && [ "${REAL_USER}" != "root" ]; then
+        chown "${REAL_USER}" "${CONFDIR}/modules.conf" 2>/dev/null || true
+    fi
     log_info "Config file permissions set to 644."
 fi
 
