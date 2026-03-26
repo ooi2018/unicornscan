@@ -750,30 +750,60 @@ void process_packet(uint8_t *user, const struct pcap_pkthdr *phdr, const uint8_t
 void do_daemon(void) {
 	pid_t child=0;
 
+	/*
+	 * Double-fork to fully detach from the controlling terminal.
+	 *
+	 * A single fork + setsid() is not sufficient when run under sudo
+	 * on macOS: sudo tracks the forked child even after setsid() and
+	 * waits for the entire process tree to exit before returning the
+	 * shell prompt.
+	 *
+	 * The double-fork ensures:
+	 * 1. First child calls setsid() to become session leader
+	 * 2. Second fork produces a grandchild that is NOT a session leader
+	 *    (so it cannot acquire a controlling terminal)
+	 * 3. The intermediate child exits immediately, so sudo's process
+	 *    tree is fully gone and it returns the prompt
+	 * 4. The grandchild is reparented to PID 1 (launchd/init)
+	 */
 	child=fork();
 	if (child < 0) {
 		ERR("cant fork: %s", strerror(errno));
 		exit(1);
 	}
-	else if (child == 0) {
-		if (setsid() < 0) {
-			ERR("setsid failed: %s", strerror(errno));
-		}
-		if (chdir("/") < 0) {
-			ERR("chdir failed: %s", strerror(errno));
-		}
-		umask(077);
-		if (freopen("/dev/null", "r", stdin) == NULL ||
-		    freopen("/dev/null", "w", stdout) == NULL ||
-		    freopen("/dev/null", "w", stderr) == NULL) {
-			/* Can't report error - stderr is gone */
-		}
-
-		return;
-	}
-	else {
+	else if (child > 0) {
+		/* Original parent: exit so sudo's direct child is gone */
 		exit(0);
 	}
+
+	/* First child: become session leader */
+	if (setsid() < 0) {
+		ERR("setsid failed: %s", strerror(errno));
+	}
+
+	/* Second fork: ensure we are not a session leader */
+	child=fork();
+	if (child < 0) {
+		ERR("cant fork (second): %s", strerror(errno));
+		exit(1);
+	}
+	else if (child > 0) {
+		/* Intermediate child: exit immediately */
+		_exit(0);
+	}
+
+	/* Grandchild: fully detached daemon */
+	if (chdir("/") < 0) {
+		ERR("chdir failed: %s", strerror(errno));
+	}
+	umask(077);
+	if (freopen("/dev/null", "r", stdin) == NULL ||
+	    freopen("/dev/null", "w", stdout) == NULL ||
+	    freopen("/dev/null", "w", stderr) == NULL) {
+		/* Can't report error - stderr is gone */
+	}
+
+	return;
 }
 
 void usage(void) {
