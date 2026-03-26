@@ -711,6 +711,14 @@ jobs:
             -P "$CERT_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
           rm -f "$RUNNER_TEMP/application.p12"
 
+          # Install the Apple Developer ID G2 intermediate certificate.
+          # Without this, the cert chain is incomplete and codesign silently
+          # falls back to ad-hoc even though find-identity shows the cert.
+          curl -sL -o "$RUNNER_TEMP/DeveloperIDG2CA.cer" \
+            https://www.apple.com/certificateauthority/DeveloperIDG2CA.cer
+          security import "$RUNNER_TEMP/DeveloperIDG2CA.cer" -k "$KEYCHAIN_PATH"
+          rm -f "$RUNNER_TEMP/DeveloperIDG2CA.cer"
+
           # Allow codesign/productsign to use the keychain without prompting
           security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
           security list-keychains -d user -s "$KEYCHAIN_PATH" $(security list-keychains -d user | tr -d '"')
