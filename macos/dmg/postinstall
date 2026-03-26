@@ -354,7 +354,8 @@ fi
 echo "  Quick start:"
 echo "    unicornscan -mT 192.168.1.1:1-1024"
 echo ""
-echo "  Full docs: https://unicornscan.org/docs/getting-started"
+echo "  To uninstall: sudo unicornscan-uninstall"
+echo "  Full docs:    https://unicornscan.org/docs/getting-started"
 echo "=========================================================="
 echo ""
 

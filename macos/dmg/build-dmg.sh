@@ -247,6 +247,16 @@ else
     fi
 fi
 
+# --- Uninstall script: /usr/local/bin/ ---
+UNINSTALL_SCRIPT_SRC="${REPO_ROOT}/scripts/unicornscan-uninstall"
+if [ -f "${UNINSTALL_SCRIPT_SRC}" ]; then
+    cp "${UNINSTALL_SCRIPT_SRC}" "${PKG_ROOT}/usr/local/bin/unicornscan-uninstall"
+    chmod 755 "${PKG_ROOT}/usr/local/bin/unicornscan-uninstall"
+    info "  + /usr/local/bin/unicornscan-uninstall"
+else
+    warn "unicornscan-uninstall script not found at ${UNINSTALL_SCRIPT_SRC}"
+fi
+
 # --- Alicorn management script: /usr/local/bin/ ---
 # The unicornscan-alicorn script manages the Docker-based Alicorn web UI
 # stack (start/stop/status/logs).  It lives in debian/ for historical

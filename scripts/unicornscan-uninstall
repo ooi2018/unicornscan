@@ -1,0 +1,196 @@
+#!/bin/sh
+#
+# unicornscan-uninstall — Completely remove unicornscan from macOS
+#
+# Removes all files installed by the DMG package, stops Docker
+# containers, unloads the ChmodBPF LaunchDaemon, and cleans up
+# the unicornscan group.
+#
+# Usage:
+#   sudo unicornscan-uninstall           # interactive (asks about data)
+#   sudo unicornscan-uninstall --purge   # remove everything including data
+#
+# Must be run as root (or via sudo).
+#
+
+SCRIPT_NAME="$(basename "$0")"
+BPF_GROUP="unicornscan"
+PURGE="no"
+
+# Parse arguments
+for arg in "$@"; do
+    case "$arg" in
+        --purge) PURGE="yes" ;;
+        --help|-h)
+            echo "Usage: sudo $0 [--purge]"
+            echo ""
+            echo "  --purge   Remove all data including Docker volumes and GeoIP databases"
+            echo "  (default) Keep Docker volumes and GeoIP databases"
+            exit 0
+            ;;
+    esac
+done
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+info() {
+    echo "${SCRIPT_NAME}: $1"
+}
+
+warn() {
+    echo "${SCRIPT_NAME}: WARNING: $1" >&2
+}
+
+# ---------------------------------------------------------------------------
+# Pre-flight
+# ---------------------------------------------------------------------------
+
+if [ "$(id -u)" -ne 0 ]; then
+    echo "${SCRIPT_NAME}: ERROR: Must be run as root.  Use: sudo $0" >&2
+    exit 1
+fi
+
+if [ "$(uname -s)" != "Darwin" ]; then
+    echo "${SCRIPT_NAME}: ERROR: This script is for macOS only." >&2
+    exit 1
+fi
+
+echo ""
+echo "=========================================================="
+echo "  Unicornscan Uninstaller"
+echo "=========================================================="
+echo ""
+
+# ---------------------------------------------------------------------------
+# Step 1: Stop Alicorn Docker containers
+# ---------------------------------------------------------------------------
+
+if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
+    FOUND_CONTAINERS="no"
+    for container in alicorn-postgres alicorn-postgrest alicorn-web alicorn-geoip; do
+        if docker ps -aq --filter "name=${container}" 2>/dev/null | grep -q .; then
+            info "Stopping and removing container: ${container}"
+            docker stop "${container}" 2>/dev/null || true
+            docker rm "${container}" 2>/dev/null || true
+            FOUND_CONTAINERS="yes"
+        fi
+    done
+    if [ "${FOUND_CONTAINERS}" = "no" ]; then
+        info "No Alicorn containers found."
+    fi
+
+    # Remove Docker volumes if purging
+    if [ "${PURGE}" = "yes" ]; then
+        if docker volume inspect alicorn_postgres_data >/dev/null 2>&1; then
+            info "Removing Docker volume: alicorn_postgres_data"
+            docker volume rm alicorn_postgres_data 2>/dev/null || true
+        fi
+    else
+        if docker volume inspect alicorn_postgres_data >/dev/null 2>&1; then
+            info "Keeping Docker volume alicorn_postgres_data (use --purge to remove)"
+        fi
+    fi
+else
+    info "Docker not available — skipping container cleanup."
+fi
+
+# ---------------------------------------------------------------------------
+# Step 2: Unload and remove ChmodBPF LaunchDaemon
+# ---------------------------------------------------------------------------
+
+PLIST="/Library/LaunchDaemons/org.unicornscan.ChmodBPF.plist"
+if launchctl list org.unicornscan.ChmodBPF >/dev/null 2>&1; then
+    info "Unloading ChmodBPF LaunchDaemon..."
+    launchctl unload "${PLIST}" 2>/dev/null || true
+fi
+if [ -f "${PLIST}" ]; then
+    info "Removing ${PLIST}"
+    rm -f "${PLIST}"
+fi
+
+# ---------------------------------------------------------------------------
+# Step 3: Remove installed files
+# ---------------------------------------------------------------------------
+
+info "Removing binaries..."
+for bin in unicornscan us fantaip unibrow unicfgtst \
+           unicornscan-geoip-update unicornscan-alicorn \
+           ChmodBPF install-chmodbpf.sh uninstall-chmodbpf.sh; do
+    rm -f "/usr/local/bin/${bin}"
+done
+
+info "Removing libraries and modules..."
+rm -rf /usr/local/lib/unicornscan
+
+info "Removing internal executables..."
+rm -rf /usr/local/libexec/unicornscan
+
+info "Removing configuration..."
+rm -rf /usr/local/etc/unicornscan
+
+info "Removing shared data and Alicorn files..."
+rm -rf /usr/local/share/unicornscan
+
+info "Removing state directory..."
+rm -rf /usr/local/var/unicornscan
+
+info "Removing man pages..."
+rm -f /usr/local/share/man/man1/unicornscan.1
+rm -f /usr/local/share/man/man1/fantaip.1
+rm -f /usr/local/share/man/man1/unibrow.1
+rm -f /usr/local/share/man/man1/unicfgtst.1
+rm -f /usr/local/share/man/man5/unicorn.conf.5
+
+info "Removing log file..."
+rm -f /var/log/unicornscan-chmodbpf.log
+
+# Remove GeoIP databases if purging
+if [ "${PURGE}" = "yes" ]; then
+    info "Removing GeoIP databases..."
+    rm -f /usr/local/share/GeoIP/dbip-city-lite.mmdb
+    rm -f /usr/local/share/GeoIP/dbip-asn-lite.mmdb
+    rm -f /usr/local/share/GeoIP/dbip-country-lite.mmdb
+fi
+
+# ---------------------------------------------------------------------------
+# Step 4: Remove the unicornscan group
+# ---------------------------------------------------------------------------
+
+if dseditgroup -o read "${BPF_GROUP}" >/dev/null 2>&1; then
+    info "Removing '${BPF_GROUP}' group..."
+    dseditgroup -o delete "${BPF_GROUP}" 2>/dev/null || \
+        warn "Failed to delete group.  Remove manually: sudo dseditgroup -o delete ${BPF_GROUP}"
+fi
+
+# ---------------------------------------------------------------------------
+# Step 5: Forget the package receipt
+# ---------------------------------------------------------------------------
+
+if pkgutil --pkg-info org.unicornscan.pkg >/dev/null 2>&1; then
+    info "Forgetting package receipt..."
+    pkgutil --forget org.unicornscan.pkg >/dev/null 2>&1 || true
+fi
+
+# ---------------------------------------------------------------------------
+# Done
+# ---------------------------------------------------------------------------
+
+echo ""
+echo "=========================================================="
+echo "  Unicornscan has been completely removed."
+echo ""
+if [ "${PURGE}" != "yes" ]; then
+echo "  Docker volume 'alicorn_postgres_data' was kept (scan history)."
+echo "  To remove it: docker volume rm alicorn_postgres_data"
+echo ""
+fi
+echo "  BPF permissions will revert to defaults at next reboot."
+echo "=========================================================="
+echo ""
+
+# Remove ourselves last
+rm -f /usr/local/bin/unicornscan-uninstall
+
+exit 0
