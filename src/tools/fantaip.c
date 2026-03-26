@@ -798,14 +798,29 @@ void do_daemon(void) {
 		_exit(0);
 	}
 
-	/* Grandchild: fully detached daemon */
+	/* Grandchild: fully detached daemon.
+	 *
+	 * Release FDs 0/1/2 FIRST.  On macOS, sudo 1.9+ defaults to
+	 * use_pty=true: it gives the child the slave side of a PTY as
+	 * FDs 0/1/2 and blocks in an event loop until ALL holders of
+	 * the slave close it.  If we delay, sudo hangs until we reach
+	 * freopen -- even though the original parent already exited.
+	 * Closing here drops the last slave reference immediately so
+	 * sudo's event loop sees EIO and returns the shell prompt.
+	 * On Linux (sudo uses waitpid, no PTY) this is a harmless no-op.
+	 */
+	if (freopen("/dev/null", "r", stdin) == NULL ||
+	    freopen("/dev/null", "w", stdout) == NULL ||
+	    freopen("/dev/null", "w", stderr) == NULL) {
+		/* cant report error -- stderr is /dev/null now */
+	}
+
 	if (chdir("/") < 0) {
 		/* chdir failed, not fatal for daemon operation */
 	}
 	umask(077);
 
-	/* close all inherited FDs >= 3 so sudo's PTY/pipe FDs
-	 * dont keep it waiting after the process tree forks */
+	/* close all inherited FDs >= 3 (sudo relay sockets, etc.) */
 	{
 		int fd=0, maxfd=0;
 
@@ -814,12 +829,6 @@ void do_daemon(void) {
 		for (fd=3; fd < maxfd; fd++) {
 			close(fd);
 		}
-	}
-
-	if (freopen("/dev/null", "r", stdin) == NULL ||
-	    freopen("/dev/null", "w", stdout) == NULL ||
-	    freopen("/dev/null", "w", stderr) == NULL) {
-		/* Can't report error - stderr is gone */
 	}
 
 	return;
