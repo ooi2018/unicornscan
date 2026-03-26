@@ -539,11 +539,23 @@ done
 # If --codesign IDENTITY is provided, sign with Developer ID Application
 # (required for notarization: hardened runtime + secure timestamp).
 # Otherwise, fall back to ad-hoc signing (sufficient for local use).
+#
+# Helper function to handle the identity quoting correctly — the identity
+# string contains spaces so it cannot be passed via a single FLAGS variable.
+do_codesign() {
+    local target="$1"
+    if [ -n "${CODESIGN_IDENTITY}" ]; then
+        codesign -f -s "${CODESIGN_IDENTITY}" --timestamp --options runtime "$target" || \
+            warn "Failed to sign $(basename "$target")"
+    else
+        codesign -f -s - "$target" 2>/dev/null || \
+            warn "Failed to sign $(basename "$target")"
+    fi
+}
+
 if [ -n "${CODESIGN_IDENTITY}" ]; then
-    CODESIGN_FLAGS="-f -s ${CODESIGN_IDENTITY} --timestamp --options runtime"
     info "Signing with Developer ID: ${CODESIGN_IDENTITY}"
 else
-    CODESIGN_FLAGS="-f -s -"
     info "Ad-hoc signing (no --codesign identity provided)"
 fi
 
@@ -557,14 +569,14 @@ for binary in \
     "${PKG_ROOT}/usr/local/libexec/unicornscan/unisend" \
     "${PKG_ROOT}/usr/local/libexec/unicornscan/unilisten"; do
     if [ -f "$binary" ]; then
-        codesign ${CODESIGN_FLAGS} "$binary" 2>/dev/null || warn "Failed to sign $(basename "$binary")"
+        do_codesign "$binary"
     fi
 done
 
 for dname in ${COPIED_DYLIBS}; do
     BUNDLED="${BUNDLED_LIB_DIR}/${dname}"
     if [ -f "$BUNDLED" ]; then
-        codesign ${CODESIGN_FLAGS} "$BUNDLED" 2>/dev/null || warn "Failed to sign ${dname}"
+        do_codesign "$BUNDLED"
     fi
 done
 
@@ -572,7 +584,7 @@ done
 if [ -d "${BUNDLED_LIB_DIR}/modules" ]; then
     for module in "${BUNDLED_LIB_DIR}/modules/"*.so; do
         if [ -f "$module" ]; then
-            codesign ${CODESIGN_FLAGS} "$module" 2>/dev/null || warn "Failed to sign $(basename "$module")"
+            do_codesign "$module"
         fi
     done
 fi
